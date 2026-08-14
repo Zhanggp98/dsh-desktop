@@ -2,6 +2,33 @@
 
 Electron 套壳封装 `dsh web`，提供 Codex 式的独立桌面窗口体验（托盘常驻、单实例、进程生命周期管理）。
 
+## 界面预览
+
+**启动画面**（三步环境检查动画：Node 检查 → dsh 检查 → 服务启动，主题跟随 DSH 设置）：
+
+| 加载中 · 深色 | 加载中 · 浅色 |
+|---|---|
+| ![启动加载中-深色](screenshots/splash_loading_dark.png) | ![启动加载中-浅色](screenshots/splash_loading_light.png) |
+
+| 完成 · 深色 | 完成 · 浅色 |
+|---|---|
+| ![启动完成-深色](screenshots/splash_complete_dark.png) | ![启动完成-浅色](screenshots/splash_complete_light.png) |
+
+**主界面**（独立窗口 + 自定义标题栏）：
+
+| 深色主题 | 浅色主题 |
+|---|---|
+| ![主界面-深色](screenshots/main_dark.png) | ![主界面-浅色](screenshots/main_light.png) |
+
+## 功能特性
+
+- **三步启动动画**：Node.js 检查 → DeepSeek Harness 检查 → 服务启动，每步状态实时打勾/打叉
+- **环境自动修复**：缺 Node 自动通过 winget 安装（系统级）、缺 dsh 自动通过 npx 安装，零命令行
+- **主题跟随**：启动画面、标题栏、窗口按钮颜色全部跟随 DSH 主题（浅色/深色/跟随系统）
+- **自定义标题栏**：鲸鱼图标 + 标题 + 可拖动窗口 + 按钮随主题变色
+- **托盘常驻**：关闭窗口最小化到托盘，任务后台继续运行
+- **端口复用**：检测到 dsh web 已在运行则直接复用，否则自动拉起
+
 ## 开发运行
 
 ```bash
