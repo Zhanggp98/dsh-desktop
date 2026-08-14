@@ -36,7 +36,7 @@
                     ]
                 }
             ],
-            "icon": "build/icon.png"
+            "icon": "build/icon-blue.png"
         },
         "nsis": {
             "oneClick": false,
