@@ -16,6 +16,7 @@
 const { app, BrowserWindow, Tray, Menu, nativeImage, dialog, shell, nativeTheme } = require('electron');
 const { spawn, execFile, execFileSync } = require('child_process');
 const net = require('net');
+const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -198,6 +199,26 @@ function waitForServer(timeoutMs) {
       setTimeout(tick, 500);
     };
     tick();
+  });
+}
+
+// 确认端口上的服务是 DeepSeek Harness（HTTP 探测页面特征），防止误复用其他程序占用的端口
+function isDshService() {
+  return new Promise((resolve) => {
+    const req = http.get(
+      { host: '127.0.0.1', port: PORT, path: '/', timeout: 3_000 },
+      (res) => {
+        let data = '';
+        res.on('data', (c) => (data += c));
+        res.on('end', () => resolve(data.includes('__DSH_BOOT__')));
+        res.on('error', () => resolve(false));
+      }
+    );
+    req.on('error', () => resolve(false));
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(false);
+    });
   });
 }
 
@@ -535,17 +556,34 @@ async function boot() {
 
     // ================= 第 2 步：检查 dsh / 服务状态（至少 2s）=================
     const probe = await ensureMin(STEP_MIN_MS, async () => {
-      const running = await isPortOpen(PORT);
-      return { running, dsh: running ? null : findDshCommand() };
+      const portOpen = await isPortOpen(PORT);
+      if (portOpen) {
+        // 端口通：再确认是 DeepSeek Harness 服务才复用，防止误连其他程序
+        const dshOk = await isDshService();
+        if (dshOk) return { running: true, dsh: null };
+        return { running: false, conflict: true, dsh: null };
+      }
+      return { running: false, dsh: findDshCommand() };
     });
 
     // ================= 第 3 步：启动服务（至少 2s，实际更长按实际）=================
     if (probe.running) {
-      // 服务已在运行：直接复用
+      // 服务已在运行：直接复用（不重复拉起，保证会话一致）
       setSplashSteps(stepsAll(['done', `Node.js v${nodeVer} 已安装`], ['done', 'DeepSeek Harness 已就绪'], ['running', '检测到服务已在运行…']));
       await ensureMin(STEP_MIN_MS, async () => {});
       setSplashSteps(stepsAll(['done', `Node.js v${nodeVer} 已安装`], ['done', 'DeepSeek Harness 已就绪'], ['done', '服务已在运行']));
       await delay(300);
+    } else if (probe.conflict) {
+      // 端口被其他程序占用：不强行拉起，提示用户
+      setSplashSteps(stepsAll(['fail', `端口 ${PORT} 已被其他程序占用`], ['fail', 'DeepSeek Harness 服务不可用'], ['fail', '启动服务（已跳过）']));
+      await delay(700);
+      dialog.showErrorBox(
+        '端口被占用',
+        `端口 ${PORT} 已被其他程序占用，且不是 DeepSeek Harness 服务。\n\n` +
+          '请关闭占用该端口的程序后重新打开本应用，或通过环境变量 DSH_DESKTOP_URL 指定其他端口。'
+      );
+      app.quit();
+      return;
     } else if (probe.dsh && probe.dsh !== 'npx') {
       // 已安装 dsh：直接启动服务
       setSplashSteps(stepsAll(['done', `Node.js v${nodeVer} 已安装`], ['done', 'DeepSeek Harness 已安装'], ['running', '正在启动服务…']));
@@ -593,10 +631,14 @@ async function boot() {
 // 拉起 dsh web 并等待服务就绪；viaNpx 时使用 npx 自动安装路径
 // nodeDir 非空时（winget 刚装完 Node），将其加入子进程 PATH，保证 dsh/npx 能找到 node
 async function launchServer(dshCmd, viaNpx, nodeDir) {
-  // 二次确认：spawn 前再次探测端口，若已有服务在运行则直接复用，避免竞态产生多个实例
+  // 二次确认：spawn 前再次探测端口，若已有 DSH 服务在运行则直接复用，避免竞态产生多个实例
   if (await isPortOpen(PORT)) {
-    dshProcess = null;
-    return true;
+    if (await isDshService()) {
+      dshProcess = null;
+      return true;
+    }
+    // 端口被非 DSH 程序占用：无法拉起，交由调用方报错
+    throw new Error(`端口 ${PORT} 已被其他程序占用，且不是 DeepSeek Harness 服务。`);
   }
 
   let launchCmd;
