@@ -528,6 +528,33 @@ function createWindow() {
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
 }
 
+// 托盘「退出」：无条件停止 3080（或自定义端口）上的服务再退出，
+// 不管服务是本应用还是浏览器/残留进程拉起的。
+function quitWithServiceStop() {
+  isQuitting = true;
+  try {
+    // 1. 本应用拉起的 dsh web 子进程
+    if (dshProcess && !dshProcess.killed) {
+      try { dshProcess.kill(); } catch { /* already gone */ }
+    }
+    // 2. 查找并强杀占用服务端口的进程（无论谁拉起的）
+    const out = execFileSync('netstat', ['-ano', '-p', 'tcp'], {
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+    const re = new RegExp(':' + PORT + '\\s+\\S+\\s+LISTENING\\s+(\\d+)', 'i');
+    const pids = new Set();
+    for (const line of out.split(/\r?\n/)) {
+      const m = line.match(re);
+      if (m && String(m[1]) !== String(process.pid)) pids.add(Number(m[1]));
+    }
+    for (const pid of pids) {
+      try { process.kill(pid); } catch { /* already gone */ }
+    }
+  } catch { /* 清理失败不阻塞退出 */ }
+  app.quit();
+}
+
 function createTray() {
   let iconPath = path.join(__dirname, '..', 'build', 'tray.png');
   if (!fs.existsSync(iconPath)) iconPath = path.join(__dirname, '..', 'build', 'icon.png');
@@ -548,6 +575,10 @@ function createTray() {
         },
       },
       { type: 'separator' },
+      {
+        label: '停止服务并退出',
+        click: quitWithServiceStop,
+      },
       {
         label: '退出',
         click: () => {
