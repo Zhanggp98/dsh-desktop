@@ -592,7 +592,13 @@ async function boot() {
 
 // 拉起 dsh web 并等待服务就绪；viaNpx 时使用 npx 自动安装路径
 // nodeDir 非空时（winget 刚装完 Node），将其加入子进程 PATH，保证 dsh/npx 能找到 node
-function launchServer(dshCmd, viaNpx, nodeDir) {
+async function launchServer(dshCmd, viaNpx, nodeDir) {
+  // 二次确认：spawn 前再次探测端口，若已有服务在运行则直接复用，避免竞态产生多个实例
+  if (await isPortOpen(PORT)) {
+    dshProcess = null;
+    return true;
+  }
+
   let launchCmd;
   let launchArgs;
 
@@ -619,12 +625,16 @@ function launchServer(dshCmd, viaNpx, nodeDir) {
 
   dshProcess.on('exit', (code) => {
     dshProcess = null;
-    if (!isQuitting) {
+    if (isQuitting) return;
+    // 延迟确认：进程退出后若端口仍通，说明是其他实例在提供服务（端口被占而退出），并非故障，不弹窗
+    setTimeout(async () => {
+      if (isQuitting) return;
+      if (await isPortOpen(PORT)) return;
       dialog.showErrorBox(
         'dsh web 已退出',
         `服务器进程意外退出（code=${code}）。请重新打开应用。`
       );
-    }
+    }, 1_500);
   });
 
   const timeout = viaNpx ? NPX_START_TIMEOUT_MS : SERVER_START_TIMEOUT_MS;
