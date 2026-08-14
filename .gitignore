@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.npm-cache/
+.electron-cache/
+.electron-builder-cache/
+.icon-tools/
+.electron-user-data/
+*.log
