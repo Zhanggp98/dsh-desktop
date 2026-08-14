@@ -13,7 +13,7 @@
  * 常驻能力：关闭窗口 = 最小化到托盘；单实例锁；退出时清理子进程。
  */
 
-const { app, BrowserWindow, Tray, Menu, nativeImage, dialog, shell, nativeTheme } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, dialog, shell, nativeTheme, ipcMain } = require('electron');
 const { spawn, execFile, execFileSync } = require('child_process');
 const net = require('net');
 const http = require('http');
@@ -293,13 +293,6 @@ function applySplashTheme() {
   if (mainWindow && !mainWindow.isDestroyed()) {
     const isDark = theme === 'dark';
     mainWindow.setBackgroundColor(isDark ? '#111318' : '#f8fafc');
-    // 同步标题栏颜色（Windows overlay）
-    try {
-      mainWindow.setTitleBarOverlay({
-        color: isDark ? '#111318' : '#f8fafc',
-        symbolColor: isDark ? '#ffffff' : '#0f172a',
-      });
-    } catch { /* 平台不支持时忽略 */ }
     // 同步自定义标题栏的图标/文字配色
     mainWindow.webContents
       .executeJavaScript(
@@ -340,17 +333,13 @@ function createWindow() {
     autoHideMenuBar: true,
     title: 'DeepSeek Harness',
     show: false,
-    // 自定义标题栏：颜色跟随主题，保留系统窗口按钮
-    titleBarStyle: 'hidden',
-    titleBarOverlay: {
-      color: isDark ? '#111318' : '#f8fafc',
-      symbolColor: isDark ? '#ffffff' : '#0f172a',
-      height: 40,
-    },
+    // 完全自绘标题栏（无系统边框），窗口按钮用页面内 HTML 实现，与蒙版融为一体
+    frame: false,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      preload: path.join(__dirname, 'preload.js'),
     },
   });
 
@@ -380,7 +369,9 @@ function createWindow() {
             'position:fixed;top:0;left:0;right:0;height:40px;' +
             '-webkit-app-region:drag;z-index:2147483647;' +
             'display:flex;align-items:center;gap:8px;padding:0 14px;' +
-            'font-size:13px;font-family:"Segoe UI","Microsoft YaHei",sans-serif;letter-spacing:.3px;';
+            'font-size:13px;font-family:"Segoe UI","Microsoft YaHei",sans-serif;letter-spacing:.3px;' +
+            'background:rgba(10,16,30,0.55);' +
+            '-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);';
           var img = document.createElement('img');
           img.id = '__dsh_drag_logo';
           img.src = ${JSON.stringify(APP_ICON_DATA_URL)};
@@ -389,16 +380,108 @@ function createWindow() {
           span.id = '__dsh_drag_title';
           span.textContent = 'DeepSeek Harness';
           span.style.cssText = 'pointer-events:none;user-select:none;';
+          // 自绘窗口按钮（右侧，与蒙版同一背景，融入标题栏）
+          var controls = document.createElement('div');
+          controls.id = '__dsh_drag_controls';
+          controls.style.cssText =
+            'display:flex;align-items:center;height:40px;margin-left:auto;-webkit-app-region:no-drag;';
+          var mkBtn = function (label, cls, action) {
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.textContent = label;
+            btn.className = 'dsh-win-btn ' + cls;
+            btn.style.cssText =
+              'width:46px;height:40px;border:none;background:transparent;color:inherit;' +
+              'font-size:11px;cursor:default;display:flex;align-items:center;justify-content:center;padding:0;';
+            btn.addEventListener('click', function () {
+              var c = window.dshWin;
+              if (c && c[action]) c[action]();
+            });
+            return btn;
+          };
+          controls.appendChild(mkBtn('\u2500', '', 'minimize'));
+          controls.appendChild(mkBtn('\u25A1', '', 'toggleMaximize'));
+          controls.appendChild(mkBtn('\u2715', 'close', 'close'));
+          // 按钮 hover 样式（注入一条小样式表，主题变量控制 hover 背景）
+          var st = document.createElement('style');
+          st.id = '__dsh_drag_style';
+          st.textContent =
+            '#__dsh_drag_bar button{transition:background .15s ease;}' +
+            '#__dsh_drag_bar button:hover{background:var(--dsh-bar-hover,rgba(255,255,255,0.12)) !important;}' +
+            '#__dsh_drag_bar button.close:hover{background:#e81123 !important;color:#fff !important;}';
+          document.head.appendChild(st);
           bar.appendChild(img);
           bar.appendChild(span);
+          bar.appendChild(controls);
           document.body.appendChild(bar);
         }
+        // 读取页面主题背景色：--dsw-alias-bg-base 的 RGB 与透明度
+        // （dsh-bg 插件换主题色/调透明度时，标题栏蒙版自动跟随同色）
+        window.__dshReadBg = function () {
+          var b = document.body;
+          if (!b) return { rgb: '10,16,30', alpha: 0.55 };
+          var v = (getComputedStyle(b).getPropertyValue('--dsw-alias-bg-base') || '').trim();
+          if (!v && b.style) v = b.style.getPropertyValue('--dsw-alias-bg-base') || '';
+          var m = v.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)/);
+          if (m) {
+            var a = m[4] !== undefined ? parseFloat(m[4]) : 1;
+            return {
+              rgb: m[1] + ',' + m[2] + ',' + m[3],
+              alpha: Math.max(0.05, Math.min(1, a))
+            };
+          }
+          // 读不到变量时按主题兜底
+          return window.__dshBarTheme === 'dark'
+            ? { rgb: '13,17,24', alpha: 0.55 }
+            : { rgb: '245,247,251', alpha: 0.55 };
+        };
+        // 蒙版 = 主题背景色 + 半透明（透明度随背景 alpha 联动，保证标题可读）
+        window.__dshSyncBar = function () {
+          var b = document.getElementById('__dsh_drag_bar');
+          if (!b) return;
+          var bg = window.__dshReadBg();
+          var alpha = Math.max(0.12, 0.55 * bg.alpha);
+          b.style.background = 'rgba(' + bg.rgb + ', ' + alpha.toFixed(3) + ')';
+        };
         window.__dshUpdateBar = function (isDark) {
+          window.__dshBarTheme = isDark ? 'dark' : 'light';
           var b = document.getElementById('__dsh_drag_bar');
           var im = document.getElementById('__dsh_drag_logo');
-          if (b) b.style.color = isDark ? '#e2e8f0' : '#1e293b';
+          if (b) {
+            b.style.color = isDark ? '#e2e8f0' : '#1e293b';
+            b.style.setProperty('--dsh-bar-hover', isDark ? 'rgba(255,255,255,0.12)' : 'rgba(15,23,42,0.08)');
+          }
           if (im) im.style.filter = isDark ? 'brightness(0) invert(1)' : 'none';
+          window.__dshSyncBar();
         };
+        // 实时监听页面背景变化：
+        //  - html/body 的 style/class（CSS 变量 setProperty / overrideTokens 写 :root）
+        //  - head 的 childList（插件可能插入 <style> 标签）
+        (function () {
+          if (window.__dshBgObserver) return;
+          window.__dshBgObserver = new MutationObserver(function () {
+            if (window.__dshSyncBar) window.__dshSyncBar();
+          });
+          var obs = window.__dshBgObserver;
+          var optAttr = { attributes: true, attributeFilter: ['style', 'class'] };
+          if (document.documentElement) obs.observe(document.documentElement, optAttr);
+          if (document.body) obs.observe(document.body, optAttr);
+          if (document.head) obs.observe(document.head, { childList: true, subtree: true });
+        })();
+        // 兜底轮询：捕获 CSSOM 直接改样式等 MutationObserver 感知不到的修改
+        (function () {
+          var last = '';
+          window.__dshBgPoll = setInterval(function () {
+            if (window.__dshSyncBar && window.__dshReadBg) {
+              var bg = window.__dshReadBg();
+              var key = bg.rgb + '|' + bg.alpha.toFixed(3);
+              if (key !== last) {
+                last = key;
+                window.__dshSyncBar();
+              }
+            }
+          }, 800);
+        })();
         // 创建时就按当前主题设置初始配色，避免首次启动图标为黑色
         window.__dshUpdateBar(isDark);
       })()`)
@@ -686,6 +769,17 @@ async function launchServer(dshCmd, viaNpx, nodeDir) {
 // ---------------------------------------------------------------------------
 // 应用生命周期
 // ---------------------------------------------------------------------------
+// 自绘标题栏窗口按钮（preload 转发）
+ipcMain.on('dsh:win-control', (event, action) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win) return;
+  if (action === 'minimize') win.minimize();
+  else if (action === 'toggle-maximize') {
+    if (win.isMaximized()) win.unmaximize();
+    else win.maximize();
+  } else if (action === 'close') win.close();
+});
+
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
