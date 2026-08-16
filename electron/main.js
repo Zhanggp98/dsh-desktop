@@ -25,8 +25,7 @@ const HARNESS_URL = process.env.DSH_DESKTOP_URL || 'http://localhost:3080';
 const PORT = Number(new URL(HARNESS_URL).port) || 3080;
 const SERVER_START_TIMEOUT_MS = 30_000; // 直接启动 dsh 的等待上限
 const NPX_START_TIMEOUT_MS = 180_000; // 首次 npx 下载安装的等待上限
-const SPLASH_MIN_MS = 1_500; // splash 最短展示时间（保证过渡动画可见）
-const STEP_MIN_MS = 2_000; // 每一步状态的最短展示时长；实际超过 2s 则按实际时长
+const SPLASH_MIN_MS = 3_000; // splash 最短展示时间（保证过渡动画可见）
 
 // 应用图标（base64 data URL，用于自定义标题栏）
 const APP_ICON_DATA_URL = (() => {
@@ -51,8 +50,9 @@ if (process.env.DSH_DESKTOP_USER_DATA) {
 
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// 保证异步操作至少展示 minMs；操作实际耗时超过 minMs 则按实际耗时
-async function ensureMin(minMs, fn) {
+// 显示状态并执行任务，该条状态至少展示 minMs（实际耗时超过则按实际）
+async function statusWhile(text, fn, minMs = 1_000) {
+  setSplashStatus(text);
   const start = Date.now();
   const result = await fn();
   const elapsed = Date.now() - start;
@@ -240,8 +240,8 @@ function isDshService() {
 // ---------------------------------------------------------------------------
 function createSplash() {
   splashWindow = new BrowserWindow({
-    width: 540,
-    height: 500,
+    width: 400,
+    height: 440,
     frame: false,
     resizable: false,
     movable: true,
@@ -264,11 +264,11 @@ function createSplash() {
   });
 }
 
-// steps: [{ status: 'pending'|'running'|'done'|'fail', text }] 共 3 项
-function setSplashSteps(steps) {
+// 更新启动画面单行状态文字
+function setSplashStatus(text) {
   if (splashWindow && !splashWindow.isDestroyed()) {
     splashWindow.webContents
-      .executeJavaScript(`window.__setSteps(${JSON.stringify(steps)})`)
+      .executeJavaScript(`window.__setStatus(${JSON.stringify(text)})`)
       .catch(() => {});
   }
 }
@@ -618,93 +618,65 @@ async function boot() {
   const bootStart = Date.now();
   createSplash();
 
-  const S1 = (s, t) => ({ status: s, text: t });
-  const stepsAll = (s1, s2, s3) => [S1(s1[0], s1[1]), S1(s2[0], s2[1]), S1(s3[0], s3[1])];
-
   try {
-    // ================= 第 1 步：检查 Node.js（至少 2s）=================
-    setSplashSteps(stepsAll(['running', '正在检查 Node.js 环境…'], ['pending', '检查 DeepSeek Harness'], ['pending', '启动服务']));
-    let nodeVer = await ensureMin(STEP_MIN_MS, checkNode);
-    let nodeDir = null;
-    let nodeSource = 'system';
-
-    if (!nodeVer) {
-      // 系统无 Node → 尝试应用内置 Node（随安装包提供，无需用户安装）
-      const bDir = bundledNodeDir();
-      if (bDir) {
-        const bVer = await runNodeVersion(bDir);
-        if (bVer) {
-          nodeVer = bVer;
-          nodeDir = bDir;
-          nodeSource = 'bundled';
+    // ---------- 第 1 步：检查 Node.js（状态至少停留 1s）----------
+    const nodeResult = await statusWhile('正在检查 Node.js 环境…', async () => {
+      let v = await checkNode();
+      let dir = null;
+      if (!v) {
+        // 系统无 Node → 使用应用内置 Node（随安装包提供，无需用户安装）
+        const bDir = bundledNodeDir();
+        if (bDir) {
+          const bv = await runNodeVersion(bDir);
+          if (bv) {
+            v = bv;
+            dir = bDir;
+          }
         }
       }
-    }
+      return { v, dir };
+    });
+    let nodeVer = nodeResult.v;
+    let nodeDir = nodeResult.dir;
 
-    // 内置也缺失（打包异常）→ 尝试 winget 自动安装（系统级，装完其他程序也能用）
+    // 内置也缺失（打包异常）→ winget 兜底（系统级安装）
     if (!nodeVer) {
       const hasWinget = await checkWinget();
       if (!hasWinget) {
-        // 无 winget：不自动安装，全部打叉 + 提示手动安装
-        setSplashSteps(stepsAll(['fail', '未安装 Node.js（系统无 winget，无法自动安装）'], ['fail', '检查 DeepSeek Harness（已跳过）'], ['fail', '启动服务（已跳过）']));
-        await delay(700);
-        const choice = dialog.showMessageBoxSync({
-          type: 'error',
-          title: '缺少 Node.js',
-          message: '未检测到 Node.js',
-          detail:
-            'DeepSeek Harness 桌面版需要 Node.js 才能运行。\n\n' +
-            '当前系统没有 winget，无法自动安装。\n' +
-            '请手动安装 Node.js（推荐 LTS 版本），安装完成后重新打开本应用。',
-          buttons: ['打开 Node.js 下载页', '退出'],
-          defaultId: 0,
-          cancelId: 1,
-        });
-        if (choice === 0) shell.openExternal('https://nodejs.org/zh-cn/download');
-        app.quit();
-        return;
-      }
-
-      // 有 winget：自动安装（会弹 UAC 授权框，需用户点"是"）
-      setSplashSteps(stepsAll(['running', '未检测到 Node.js，正在通过 winget 自动安装…\n（如弹出授权窗口请点击"是"）'], ['pending', '检查 DeepSeek Harness'], ['pending', '启动服务']));
-      const installed = await installNodeViaWinget();
-      if (!installed) {
-        setSplashSteps(stepsAll(['fail', 'Node.js 自动安装失败'], ['fail', '检查 DeepSeek Harness（已跳过）'], ['fail', '启动服务（已跳过）']));
-        await delay(700);
+        setSplashStatus('Node.js 环境不可用');
+        await delay(600);
         dialog.showErrorBox(
-          'Node.js 安装失败',
-          '通过 winget 自动安装 Node.js 失败（可能取消了授权或网络问题）。\n\n' +
-            '请手动安装 Node.js 后重新打开本应用。'
+          '缺少 Node.js',
+          '未检测到 Node.js，且系统没有 winget 也无法自动安装。\n\n请安装 Node.js 后重新打开本应用。'
         );
         app.quit();
         return;
       }
-      // 安装成功：PATH 未刷新到当前进程，直接探测安装目录
-      nodeDir = locateNodeDir();
-      if (nodeDir) nodeVer = await runNodeVersion(nodeDir);
-      if (!nodeVer) {
-        setSplashSteps(stepsAll(['fail', 'Node.js 已安装但未能定位'], ['fail', '检查 DeepSeek Harness（已跳过）'], ['fail', '启动服务（已跳过）']));
-        await delay(700);
-        dialog.showErrorBox('Node.js 定位失败', 'Node.js 已安装，但未能在标准安装目录中找到。\n请重新打开应用重试。');
+      setSplashStatus('正在通过 winget 安装 Node.js…\n（如弹出授权窗口请点击"是"）');
+      const installed = await installNodeViaWinget();
+      if (!installed) {
+        setSplashStatus('Node.js 自动安装失败');
+        await delay(600);
+        dialog.showErrorBox('Node.js 安装失败', '通过 winget 自动安装 Node.js 失败。请手动安装后重试。');
         app.quit();
         return;
       }
-      nodeSource = 'winget';
+      nodeDir = locateNodeDir();
+      if (nodeDir) nodeVer = await runNodeVersion(nodeDir);
+      if (!nodeVer) {
+        setSplashStatus('Node.js 已安装但未能定位');
+        await delay(600);
+        dialog.showErrorBox('Node.js 定位失败', 'Node.js 已安装，但未能在标准目录中找到。请重试。');
+        app.quit();
+        return;
+      }
     }
 
-    const nodeLabel = () =>
-      nodeSource === 'bundled'
-        ? `Node.js v${nodeVer} 已内置（免安装）`
-        : nodeSource === 'winget'
-          ? `Node.js v${nodeVer} 已安装（winget）`
-          : `Node.js v${nodeVer} 已安装`;
-    setSplashSteps(stepsAll(['done', nodeLabel()], ['running', '正在检查 DeepSeek Harness…'], ['pending', '启动服务']));
-
-    // ================= 第 2 步：检查 dsh / 服务状态（至少 2s）=================
-    const probe = await ensureMin(STEP_MIN_MS, async () => {
+    // ---------- 第 2 步：检查 dsh / 服务状态（状态至少停留 1s）----------
+    const probe = await statusWhile('正在检查 DeepSeek Harness…', async () => {
       const portOpen = await isPortOpen(PORT);
       if (portOpen) {
-        // 端口通：再确认是 DeepSeek Harness 服务才复用，防止误连其他程序
+        // 端口通：确认是 DSH 服务才复用，防止误连其他程序
         const dshOk = await isDshService();
         if (dshOk) return { running: true, dsh: null };
         return { running: false, conflict: true, dsh: null };
@@ -712,45 +684,37 @@ async function boot() {
       return { running: false, dsh: findDshCommand() };
     });
 
-    // ================= 第 3 步：启动服务（至少 2s，实际更长按实际）=================
+    // ---------- 第 3 步：启动 / 复用服务 ----------
     if (probe.running) {
       // 服务已在运行：直接复用（不重复拉起，保证会话一致）
-      setSplashSteps(stepsAll(['done', nodeLabel()], ['done', 'DeepSeek Harness 已就绪'], ['running', '检测到服务已在运行…']));
-      await ensureMin(STEP_MIN_MS, async () => {});
-      setSplashSteps(stepsAll(['done', nodeLabel()], ['done', 'DeepSeek Harness 已就绪'], ['done', '服务已在运行']));
-      await delay(300);
+      setSplashStatus('服务已在运行');
     } else if (probe.conflict) {
-      // 端口被其他程序占用：不强行拉起，提示用户
-      setSplashSteps(stepsAll(['fail', `端口 ${PORT} 已被其他程序占用`], ['fail', 'DeepSeek Harness 服务不可用'], ['fail', '启动服务（已跳过）']));
-      await delay(700);
+      setSplashStatus('端口被其他程序占用');
+      await delay(600);
       dialog.showErrorBox(
         '端口被占用',
-        `端口 ${PORT} 已被其他程序占用，且不是 DeepSeek Harness 服务。\n\n` +
-          '请关闭占用该端口的程序后重新打开本应用，或通过环境变量 DSH_DESKTOP_URL 指定其他端口。'
+        `端口 ${PORT} 已被其他程序占用，且不是 DeepSeek Harness 服务。\n\n请关闭占用该端口的程序后重试。`
       );
       app.quit();
       return;
-    } else if (probe.dsh && probe.dsh !== 'npx') {
-      // 已安装 dsh：直接启动服务
-      setSplashSteps(stepsAll(['done', nodeLabel()], ['done', 'DeepSeek Harness 已安装'], ['running', '正在启动服务…']));
-      await ensureMin(STEP_MIN_MS, () => launchServer(probe.dsh, false, nodeDir));
-      setSplashSteps(stepsAll(['done', nodeLabel()], ['done', 'DeepSeek Harness 已就绪'], ['done', '服务已启动']));
-      await delay(400);
     } else {
-      // 未安装 dsh：自动通过 npx 安装（下载完成后服务随即启动）
-      setSplashSteps(stepsAll(['done', nodeLabel()], ['running', '未找到 DeepSeek Harness，正在自动安装…'], ['pending', '启动服务']));
-      await delay(600);
-      await ensureMin(STEP_MIN_MS, () => launchServer(null, true, nodeDir));
-      setSplashSteps(stepsAll(['done', nodeLabel()], ['done', 'DeepSeek Harness 安装完成'], ['done', '服务已启动']));
-      await delay(400);
+      // 启动服务（状态至少停留 1s；服务启动通常更久按实际）
+      await statusWhile('正在启动服务…', async () => {
+        if (probe.dsh && probe.dsh !== 'npx') {
+          await launchServer(probe.dsh, false, nodeDir);
+        } else {
+          // 无 dsh：先显示安装中
+          setSplashStatus('正在安装 DeepSeek Harness…');
+          await launchServer(null, true, nodeDir);
+        }
+      });
     }
 
-    // ================= 进入主页面 =================
+    // ---------- 进入主页面 ----------
     await delay(Math.max(0, SPLASH_MIN_MS - (Date.now() - bootStart)));
 
     // 预览模式：加载完成后停留在 splash，不进入主页面（DSH_DESKTOP_HOLD_SPLASH=1）
     if (process.env.DSH_DESKTOP_HOLD_SPLASH === '1') {
-      // 停留在启动画面，方便查看效果
       return;
     }
 
@@ -766,8 +730,7 @@ async function boot() {
       }
     }
   } catch (err) {
-    // 异常：三步统一标红
-    setSplashSteps(stepsAll(['fail', 'Node.js 环境检查失败'], ['fail', 'DeepSeek Harness 获取失败'], ['fail', '服务启动失败']));
+    setSplashStatus('启动失败');
     await delay(500);
     dialog.showErrorBox('启动失败', err.message);
     app.quit();

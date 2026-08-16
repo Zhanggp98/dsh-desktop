@@ -2,42 +2,27 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<title>DeepSeek Harness 启动中</title>
+<title>DeepSeek Harness</title>
 <style>
   /* ===== 主题变量（默认深色） ===== */
   :root {
     --bg-grad: linear-gradient(165deg, #0a1120 0%, #0e1d3a 48%, #132a52 100%);
     --text-title: #f1f5f9;
-    --panel-bg: rgba(255, 255, 255, .05);
-    --panel-border: rgba(255, 255, 255, .09);
-    --panel-shadow: 0 12px 32px rgba(0, 0, 0, .35), inset 0 1px 0 rgba(255, 255, 255, .05);
-    --step-divider: rgba(255, 255, 255, .07);
-    --label-color: #8b9bb3;
-    --label-active: #e8eefc;
-    --label-done: #dbe4f5;
-    --label-fail: #fca5a5;
-    --badge-pending-border: rgba(255, 255, 255, .25);
-    --badge-running-border: rgba(255, 255, 255, .16);
+    --text-status: #94a3b8;
+    --spinner-ring: rgba(255, 255, 255, .16);
+    --spinner-front: #4f8cff;
     --version-color: #4b5e7d;
-    --logo-filter: brightness(0) invert(1); /* 白鲸 */
+    --logo-filter: brightness(0) invert(1);
     --glow: rgba(79, 140, 255, .16);
   }
-  /* ===== 浅色主题 ===== */
   :root[data-theme="light"] {
     --bg-grad: linear-gradient(165deg, #f8fafc 0%, #eef2f7 48%, #e3ebf9 100%);
     --text-title: #0f172a;
-    --panel-bg: rgba(255, 255, 255, .9);
-    --panel-border: rgba(15, 23, 42, .08);
-    --panel-shadow: 0 12px 32px rgba(15, 23, 42, .12), inset 0 1px 0 rgba(255, 255, 255, .6);
-    --step-divider: rgba(15, 23, 42, .07);
-    --label-color: #64748b;
-    --label-active: #0f172a;
-    --label-done: #334155;
-    --label-fail: #dc2626;
-    --badge-pending-border: rgba(15, 23, 42, .28);
-    --badge-running-border: rgba(37, 99, 235, .35);
+    --text-status: #64748b;
+    --spinner-ring: rgba(15, 23, 42, .14);
+    --spinner-front: #4f8cff;
     --version-color: #94a3b8;
-    --logo-filter: none; /* 黑鲸 */
+    --logo-filter: none;
     --glow: rgba(37, 99, 235, .12);
   }
 
@@ -48,21 +33,20 @@
     font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
     color: var(--text-title);
     display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 48px; overflow: hidden; user-select: none;
+    gap: 26px; overflow: hidden; user-select: none;
     -webkit-app-region: drag;
     transition: background .3s ease;
   }
 
-  /* 品牌区：logo 与标题紧凑组合 */
   .brand { display: flex; flex-direction: column; align-items: center; gap: 10px; }
   .logo-wrap {
-    width: 96px; height: 96px;
+    width: 110px; height: 110px;
     display: flex; align-items: center; justify-content: center;
     background: radial-gradient(circle at 50% 38%, var(--glow), transparent 70%);
     border-radius: 50%;
   }
   .logo {
-    width: 72px; height: 72px;
+    width: 82px; height: 82px;
     filter: var(--logo-filter);
     animation: breathe 2.6s ease-in-out infinite;
   }
@@ -70,55 +54,38 @@
     0%, 100% { transform: scale(1); opacity: .95; }
     50% { transform: scale(1.07); opacity: 1; }
   }
-  .title { font-size: 19px; font-weight: 600; color: var(--text-title); letter-spacing: 1px; }
+  .title { font-size: 20px; font-weight: 600; color: var(--text-title); letter-spacing: 1px; }
 
-  /* 步骤面板 */
-  .panel {
-    width: 344px;
-    background: var(--panel-bg);
-    border: 1px solid var(--panel-border);
-    border-radius: 18px;
-    padding: 10px 12px;
-    box-shadow: var(--panel-shadow);
-    margin-top: 10px;
-    transition: background .3s ease, border-color .3s ease;
+  .spinner {
+    width: 34px; height: 34px;
+    border: 3px solid var(--spinner-ring);
+    border-top-color: var(--spinner-front);
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+    margin-top: 20px;
   }
-  .step {
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 18px; padding: 12px 14px; font-size: 14px;
-  }
-  .step + .step { border-top: 1px solid var(--step-divider); }
-  .step .label {
-    color: var(--label-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .status {
+    font-size: 13px; color: var(--text-status); text-align: center;
+    min-height: 20px; padding: 0 28px; margin-top: 4px;
     transition: color .25s ease;
   }
-  .step.active .label { color: var(--label-active); }
-  .step.done   .label { color: var(--label-done); }
-  .step.fail   .label { color: var(--label-fail); }
-
-  /* 状态徽章（行尾） */
-  .badge {
-    width: 22px; height: 22px; border-radius: 50%; flex: none;
-    display: inline-flex; align-items: center; justify-content: center;
-    font-size: 13px; font-weight: 700; color: #fff;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, .3);
-  }
-  .badge.pending { border: 1.5px solid var(--badge-pending-border); box-shadow: none; }
-  .badge.running {
-    border: 2px solid var(--badge-running-border);
-    border-top-color: #5b96ff;
-    animation: spin .8s linear infinite;
-    box-shadow: none;
-  }
-  .badge.done   { background: linear-gradient(135deg, #10b981, #059669); animation: pop .35s cubic-bezier(.34,1.56,.64,1); }
-  .badge.fail   { background: linear-gradient(135deg, #f87171, #dc2626); animation: pop .35s cubic-bezier(.34,1.56,.64,1); }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  @keyframes pop {
-    from { transform: scale(.3); opacity: 0; }
-    to   { transform: scale(1);  opacity: 1; }
+  .status .fade { animation: fadein .35s ease; }
+  @keyframes fadein {
+    from { opacity: 0; transform: translateY(3px); }
+    to { opacity: 1; transform: none; }
   }
 
-  .version { font-size: 12px; color: var(--version-color); letter-spacing: .5px; }
+  .version {
+    position: absolute;
+    bottom: 18px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 11px;
+    color: var(--version-color);
+  }
 </style>
 </head>
 <body>
@@ -126,29 +93,21 @@
     <div class="logo-wrap"><img class="logo" src="../build/icon.png" alt="DeepSeek Harness" /></div>
     <div class="title">DeepSeek Harness</div>
   </div>
-  <div class="panel">
-    <div class="step" id="step-1"><span class="label">检查 Node.js 环境</span><span class="badge pending"></span></div>
-    <div class="step" id="step-2"><span class="label">检查 DeepSeek Harness</span><span class="badge pending"></span></div>
-    <div class="step" id="step-3"><span class="label">启动服务</span><span class="badge pending"></span></div>
-  </div>
+  <div class="spinner"></div>
+  <div class="status"><span id="status" class="fade">正在启动…</span></div>
   <div class="version">v0.1.0</div>
   <script>
     // 主题切换：light | dark（由主进程调用）
     window.__setTheme = function (theme) {
       document.documentElement.setAttribute('data-theme', theme === 'light' ? 'light' : 'dark');
     };
-    // status: pending | running | done | fail —— 徽章在行尾
-    function renderStep(idx, status, text) {
-      var el = document.getElementById('step-' + idx);
-      if (!el) return;
-      el.className = 'step ' + (status === 'running' ? 'active' : status);
-      el.querySelector('.label').textContent = text;
-      var badge = el.querySelector('.badge');
-      badge.className = 'badge ' + status;
-      badge.textContent = status === 'done' ? '✓' : status === 'fail' ? '✗' : '';
-    }
-    window.__setSteps = function (steps) {
-      steps.forEach(function (s, i) { renderStep(i + 1, s.status, s.text); });
+    // 更新单行状态文字（带淡入动画）
+    window.__setStatus = function (text) {
+      var el = document.getElementById('status');
+      el.textContent = text;
+      el.classList.remove('fade');
+      void el.offsetWidth;
+      el.classList.add('fade');
     };
   </script>
 </body>
