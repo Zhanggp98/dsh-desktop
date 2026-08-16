@@ -1,6 +1,7 @@
 node_modules/
 dist/
 dist-tmp/
+vendor/
 .npm-cache/
 .electron-cache/
 .electron-builder-cache/

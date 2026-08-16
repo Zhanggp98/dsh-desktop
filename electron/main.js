@@ -123,6 +123,19 @@ function locateNodeDir() {
   return null;
 }
 
+// 定位应用内置 Node（随安装包分发，用户无需安装）：
+// 打包后位于 resources/node；开发时位于项目 vendor/node
+function bundledNodeDir() {
+  const candidates = [
+    path.join(process.resourcesPath || '', 'node'),
+    path.join(__dirname, '..', 'vendor', 'node'),
+  ];
+  for (const dir of candidates) {
+    if (dir && fs.existsSync(path.join(dir, 'node.exe'))) return dir;
+  }
+  return null;
+}
+
 // 用指定目录的 node.exe 读取版本
 function runNodeVersion(nodeDir) {
   return new Promise((resolve) => {
@@ -613,9 +626,23 @@ async function boot() {
     setSplashSteps(stepsAll(['running', '正在检查 Node.js 环境…'], ['pending', '检查 DeepSeek Harness'], ['pending', '启动服务']));
     let nodeVer = await ensureMin(STEP_MIN_MS, checkNode);
     let nodeDir = null;
+    let nodeSource = 'system';
 
     if (!nodeVer) {
-      // Node 未安装：尝试通过 winget 自动安装（系统级，装完其他程序也能用）
+      // 系统无 Node → 尝试应用内置 Node（随安装包提供，无需用户安装）
+      const bDir = bundledNodeDir();
+      if (bDir) {
+        const bVer = await runNodeVersion(bDir);
+        if (bVer) {
+          nodeVer = bVer;
+          nodeDir = bDir;
+          nodeSource = 'bundled';
+        }
+      }
+    }
+
+    // 内置也缺失（打包异常）→ 尝试 winget 自动安装（系统级，装完其他程序也能用）
+    if (!nodeVer) {
       const hasWinget = await checkWinget();
       if (!hasWinget) {
         // 无 winget：不自动安装，全部打叉 + 提示手动安装
@@ -662,11 +689,16 @@ async function boot() {
         app.quit();
         return;
       }
-      setSplashSteps(stepsAll(['done', `Node.js v${nodeVer} 已安装（winget）`], ['running', '正在检查 DeepSeek Harness…'], ['pending', '启动服务']));
-      await delay(350);
-    } else {
-      setSplashSteps(stepsAll(['done', `Node.js v${nodeVer} 已安装`], ['running', '正在检查 DeepSeek Harness…'], ['pending', '启动服务']));
+      nodeSource = 'winget';
     }
+
+    const nodeLabel = () =>
+      nodeSource === 'bundled'
+        ? `Node.js v${nodeVer} 已内置（免安装）`
+        : nodeSource === 'winget'
+          ? `Node.js v${nodeVer} 已安装（winget）`
+          : `Node.js v${nodeVer} 已安装`;
+    setSplashSteps(stepsAll(['done', nodeLabel()], ['running', '正在检查 DeepSeek Harness…'], ['pending', '启动服务']));
 
     // ================= 第 2 步：检查 dsh / 服务状态（至少 2s）=================
     const probe = await ensureMin(STEP_MIN_MS, async () => {
@@ -683,9 +715,9 @@ async function boot() {
     // ================= 第 3 步：启动服务（至少 2s，实际更长按实际）=================
     if (probe.running) {
       // 服务已在运行：直接复用（不重复拉起，保证会话一致）
-      setSplashSteps(stepsAll(['done', `Node.js v${nodeVer} 已安装`], ['done', 'DeepSeek Harness 已就绪'], ['running', '检测到服务已在运行…']));
+      setSplashSteps(stepsAll(['done', nodeLabel()], ['done', 'DeepSeek Harness 已就绪'], ['running', '检测到服务已在运行…']));
       await ensureMin(STEP_MIN_MS, async () => {});
-      setSplashSteps(stepsAll(['done', `Node.js v${nodeVer} 已安装`], ['done', 'DeepSeek Harness 已就绪'], ['done', '服务已在运行']));
+      setSplashSteps(stepsAll(['done', nodeLabel()], ['done', 'DeepSeek Harness 已就绪'], ['done', '服务已在运行']));
       await delay(300);
     } else if (probe.conflict) {
       // 端口被其他程序占用：不强行拉起，提示用户
@@ -700,16 +732,16 @@ async function boot() {
       return;
     } else if (probe.dsh && probe.dsh !== 'npx') {
       // 已安装 dsh：直接启动服务
-      setSplashSteps(stepsAll(['done', `Node.js v${nodeVer} 已安装`], ['done', 'DeepSeek Harness 已安装'], ['running', '正在启动服务…']));
+      setSplashSteps(stepsAll(['done', nodeLabel()], ['done', 'DeepSeek Harness 已安装'], ['running', '正在启动服务…']));
       await ensureMin(STEP_MIN_MS, () => launchServer(probe.dsh, false, nodeDir));
-      setSplashSteps(stepsAll(['done', `Node.js v${nodeVer} 已安装`], ['done', 'DeepSeek Harness 已就绪'], ['done', '服务已启动']));
+      setSplashSteps(stepsAll(['done', nodeLabel()], ['done', 'DeepSeek Harness 已就绪'], ['done', '服务已启动']));
       await delay(400);
     } else {
       // 未安装 dsh：自动通过 npx 安装（下载完成后服务随即启动）
-      setSplashSteps(stepsAll(['done', `Node.js v${nodeVer} 已安装`], ['running', '未找到 DeepSeek Harness，正在自动安装…'], ['pending', '启动服务']));
+      setSplashSteps(stepsAll(['done', nodeLabel()], ['running', '未找到 DeepSeek Harness，正在自动安装…'], ['pending', '启动服务']));
       await delay(600);
       await ensureMin(STEP_MIN_MS, () => launchServer(null, true, nodeDir));
-      setSplashSteps(stepsAll(['done', `Node.js v${nodeVer} 已安装`], ['done', 'DeepSeek Harness 安装完成'], ['done', '服务已启动']));
+      setSplashSteps(stepsAll(['done', nodeLabel()], ['done', 'DeepSeek Harness 安装完成'], ['done', '服务已启动']));
       await delay(400);
     }
 

@@ -27,6 +27,12 @@
             "build/tray.png",
             "package.json"
         ],
+        "extraResources": [
+            {
+                "from": "vendor/node",
+                "to": "node"
+            }
+        ],
         "win": {
             "target": [
                 {
