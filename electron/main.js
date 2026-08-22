@@ -42,6 +42,7 @@ let splashWindow = null;
 let tray = null;
 let dshProcess = null;
 let isQuitting = false;
+let isRestarting = false; // 重启服务期间：抑制"意外退出"弹窗
 
 // 开发/便携模式：自定义用户数据目录（避免写入 %APPDATA%）
 if (process.env.DSH_DESKTOP_USER_DATA) {
@@ -333,8 +334,8 @@ function createWindow() {
   const theme = resolveSplashTheme();
   const isDark = theme === 'dark';
   mainWindow = new BrowserWindow({
-    width: 1360,
-    height: 860,
+    width: 1640,
+    height: 960,
     minWidth: 900,
     minHeight: 600,
     icon: path.join(__dirname, '..', 'build', 'icon.png'),
@@ -354,6 +355,8 @@ function createWindow() {
 
   mainWindow.once('ready-to-show', () => mainWindow.show());
   mainWindow.loadFile(path.join(__dirname, 'nav.html'));
+  // 壳页面加载完成后立即推送初始主题（避免首次启动不随主题）
+  mainWindow.webContents.on('did-finish-load', () => applySplashTheme());
 
   // 关闭按钮 = 最小化到托盘（任务继续在后台跑）
   mainWindow.on('close', (e) => {
@@ -376,19 +379,14 @@ function createWindow() {
 
 // 托盘「退出」：无条件停止 3080（或自定义端口）上的服务再退出，
 // 不管服务是本应用还是浏览器/残留进程拉起的。
-function quitWithServiceStop() {
-  isQuitting = true;
+// 强杀占用指定端口的进程（无论谁拉起的）
+function killPortProcess(port) {
   try {
-    // 1. 本应用拉起的 dsh web 子进程
-    if (dshProcess && !dshProcess.killed) {
-      try { dshProcess.kill(); } catch { /* already gone */ }
-    }
-    // 2. 查找并强杀占用服务端口的进程（无论谁拉起的）
     const out = execFileSync('netstat', ['-ano', '-p', 'tcp'], {
       encoding: 'utf8',
       windowsHide: true,
     });
-    const re = new RegExp(':' + PORT + '\\s+\\S+\\s+LISTENING\\s+(\\d+)', 'i');
+    const re = new RegExp(':' + port + '\\s+\\S+\\s+LISTENING\\s+(\\d+)', 'i');
     const pids = new Set();
     for (const line of out.split(/\r?\n/)) {
       const m = line.match(re);
@@ -397,8 +395,56 @@ function quitWithServiceStop() {
     for (const pid of pids) {
       try { process.kill(pid); } catch { /* already gone */ }
     }
+  } catch { /* 忽略 */ }
+}
+
+function quitWithServiceStop() {
+  isQuitting = true;
+  try {
+    // 1. 本应用拉起的 dsh web 子进程
+    if (dshProcess && !dshProcess.killed) {
+      try { dshProcess.kill(); } catch { /* already gone */ }
+    }
+    // 2. 强杀占用服务端口的进程（无论谁拉起的）
+    killPortProcess(PORT);
   } catch { /* 清理失败不阻塞退出 */ }
   app.quit();
+}
+
+// 重启 dsh 服务：杀掉当前服务 → 重新拉起 → 返回是否成功（不退出窗口）
+async function restartService() {
+  isRestarting = true;
+  try {
+    // 1. 杀当前服务
+    if (dshProcess && !dshProcess.killed) {
+      try { dshProcess.kill(); } catch { /* ignore */ }
+    }
+    killPortProcess(PORT);
+    // 2. 等待端口释放
+    await delay(1500);
+    // 3. 重新拉起（复用启动逻辑）
+    const dshCmd = findDshCommand();
+    if (dshCmd && dshCmd !== 'npx') {
+      await launchServer(dshCmd, false, null);
+    } else {
+      await launchServer(null, true, null);
+    }
+    // 4. 刷新 Harness iframe（跨源 iframe 不能用 reload()，通过重置 src 强制重载）
+    setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents
+          .executeJavaScript(
+            "(function(){var f=document.getElementById('frame-harness');if(!f)return false;var s=f.getAttribute('src')||f.src;f.removeAttribute('src');f.setAttribute('src',s);return true;})()"
+          )
+          .catch(() => {});
+      }
+    }, 800);
+    return true;
+  } catch (e) {
+    return e.message || '重启失败';
+  } finally {
+    isRestarting = false;
+  }
 }
 
 function createTray() {
@@ -553,6 +599,8 @@ async function boot() {
 
     createWindow();
     createTray();
+    // 启动完成后自动检查更新（不阻塞）
+    autoCheckUpdate();
     // 等主窗口真正显示后再关闭 splash，避免出现空白间隙
     if (splashWindow) {
       const closeSplash = () => splashWindow && splashWindow.close();
@@ -593,6 +641,8 @@ async function launchServer(dshCmd, viaNpx, nodeDir) {
     launchCmd = dshCmd;
     launchArgs = ['web'];
   }
+  // 禁止 dsh web 自动打开默认浏览器（GUI 由本应用显示）
+  launchArgs.push('--no-open');
   if (PORT !== 3080) launchArgs.push('--port', String(PORT));
 
   const env = { ...process.env };
@@ -609,10 +659,10 @@ async function launchServer(dshCmd, viaNpx, nodeDir) {
 
   dshProcess.on('exit', (code) => {
     dshProcess = null;
-    if (isQuitting) return;
+    if (isQuitting || isRestarting) return;
     // 延迟确认：进程退出后若端口仍通，说明是其他实例在提供服务（端口被占而退出），并非故障，不弹窗
     setTimeout(async () => {
-      if (isQuitting) return;
+      if (isQuitting || isRestarting) return;
       if (await isPortOpen(PORT)) return;
       dialog.showErrorBox(
         'dsh web 已退出',
@@ -656,37 +706,78 @@ function dshHomeDir() {
   return process.env.DSH_HOME || path.join(os.homedir(), '.dsh');
 }
 
-// 插件列表：内建 bundles + profiles node_modules 里的用户/树外插件
+// 插件列表：读取 dsh.profile.bundles，区分为核心（系统自带）和第三方（用户安装）
+const CORE_BUNDLES = [
+  '@deepseek-ai/dsh-base',
+  '@deepseek-ai/dsh-web-app',
+  '@deepseek-ai/dsh-headless',
+];
+
 function listPlugins() {
   const out = [];
-  // 1. 内建 bundles（profiles/web/package.json 的 dsh.profile.bundles）
   try {
-    const pkg = JSON.parse(
-      fs.readFileSync(path.join(dshHomeDir(), 'profiles', 'web', 'package.json'), 'utf8')
-    );
+    const pkgPath = path.join(dshHomeDir(), 'profiles', 'web', 'package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
     const bundles = (pkg.dsh && pkg.dsh.profile && pkg.dsh.profile.bundles) || [];
     for (const b of bundles) {
-      out.push({ id: b, name: b, detail: '内置 bundle', enabled: true });
+      const isCore = CORE_BUNDLES.includes(b);
+      // 尝试获取版本/描述
+      let detail = isCore ? '核心 bundle' : '第三方插件';
+      const scopeDir = b.startsWith('@') ? b.split('/')[0] : null;
+      const namePart = b.startsWith('@') ? b.split('/')[1] : b;
+      const candidates = [
+        path.join(dshHomeDir(), 'profiles', 'node_modules', scopeDir || '', namePart),
+        path.join(dshHomeDir(), 'profiles', 'web', 'node_modules', scopeDir || '', namePart),
+      ];
+      for (const d of candidates) {
+        const pj = path.join(d, 'package.json');
+        if (fs.existsSync(pj)) {
+          try {
+            const ip = JSON.parse(fs.readFileSync(pj, 'utf8'));
+            detail = ip.description || (ip.version ? 'v' + ip.version : detail);
+          } catch { /* 忽略 */ }
+          break;
+        }
+      }
+      out.push({ id: b, name: b, detail, isCore, enabled: true });
     }
   } catch { /* 无 profile 配置 */ }
-  // 2. profiles/node_modules 下的插件包（用户安装）
-  for (const sub of ['node_modules']) {
-    const dir = path.join(dshHomeDir(), 'profiles', sub);
-    try {
-      for (const name of fs.readdirSync(dir)) {
-        if (name.startsWith('.') || name === 'node_modules' || name === '.bin') continue;
-        const full = path.join(dir, name);
-        if (!fs.statSync(full).isDirectory()) continue;
-        let detail = '用户插件';
-        try {
-          const pkg = JSON.parse(fs.readFileSync(path.join(full, 'package.json'), 'utf8'));
-          detail = pkg.description || (pkg.version ? 'v' + pkg.version : '用户插件');
-        } catch { /* 无 package.json */ }
-        out.push({ id: name, name, detail, enabled: true });
-      }
-    } catch { /* 目录不存在 */ }
-  }
   return out;
+}
+
+// 移除第三方插件：从 dsh.profile.bundles 删除 + 删除包目录
+function removePlugin(id) {
+  const pkgPath = path.join(dshHomeDir(), 'profiles', 'web', 'package.json');
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+  const bundles = pkg.dsh && pkg.dsh.profile && pkg.dsh.profile.bundles;
+  if (!bundles) return false;
+  const idx = bundles.indexOf(id);
+  if (idx < 0) return false;
+  bundles.splice(idx, 1);
+  fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf8');
+  // 尝试删除包目录（非致命）
+  const scopeDir = id.startsWith('@') ? id.split('/')[0] : null;
+  const namePart = id.startsWith('@') ? id.split('/')[1] : id;
+  const candidates = [
+    path.join(dshHomeDir(), 'profiles', 'node_modules', scopeDir || '', namePart),
+    path.join(dshHomeDir(), 'profiles', 'web', 'node_modules', scopeDir || '', namePart),
+  ];
+  for (const dir of candidates) {
+    try {
+      if (fs.existsSync(dir)) {
+        // 如果包的父目录（scoped 目录）下面没有其他包了，也删除父目录
+        const parent = path.dirname(dir);
+        fs.rmSync(dir, { recursive: true, force: true });
+        if (scopeDir && parent !== dir && fs.existsSync(parent)) {
+          try {
+            const remain = fs.readdirSync(parent);
+            if (remain.length === 0) fs.rmdirSync(parent);
+          } catch { /* 忽略 */ }
+        }
+      }
+    } catch { /* 忽略 */ }
+  }
+  return true;
 }
 
 // MCP 服务器：从 DSH settings.yaml 读取 mcp 段（若配置了）
@@ -733,6 +824,129 @@ ipcMain.handle('dsh:get-data', async () => {
   if (currentNavPage === 'mcp') return listMcpServers();
   if (currentNavPage === 'skills') return listSkills();
   return [];
+});
+
+// 插件移除
+ipcMain.handle('dsh:plugin-remove', async (event, id) => {
+  return removePlugin(id);
+});
+
+// 重启 dsh 服务（不退出窗口）
+ipcMain.handle('dsh:restart-service', async () => {
+  return restartService();
+});
+
+// ---------------------------------------------------------------------------
+// 检查更新：对比 npm 上 @deepseek-ai/dsh 最新版本与本地已装版本
+// ---------------------------------------------------------------------------
+function getLocalDshVersion() {
+  try {
+    const dshCmd = findDshCommand();
+    if (!dshCmd) return null;
+    // dsh.cmd 位于 node_modules/.bin/，包在 node_modules/@deepseek-ai/dsh/
+    const pkgPath = path.join(path.dirname(dshCmd), '..', '@deepseek-ai', 'dsh', 'package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    return pkg.version || null;
+  } catch {
+    return null;
+  }
+}
+
+async function checkForUpdates() {
+  try {
+    const local = getLocalDshVersion();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15_000);
+    const res = await fetch('https://registry.npmmirror.com/@deepseek-ai/dsh/latest', {
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const remote = data.version || null;
+    return {
+      local,
+      remote,
+      hasUpdate: !!local && !!remote && local !== remote,
+    };
+  } catch (e) {
+    return { error: e.message || '检查失败' };
+  }
+}
+
+ipcMain.handle('dsh:check-update', async () => {
+  return checkForUpdates();
+});
+
+// 启动完成后自动检查一次（不阻塞），有更新则推送前端提示
+function autoCheckUpdate() {
+  setTimeout(async () => {
+    const result = await checkForUpdates();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('dsh:update-result', result);
+    }
+  }, 4_000);
+}
+
+// 安装第三方插件：直接用 fetch 从 registry 下载 tarball → tar 解压到 profiles/node_modules
+// （不依赖 npm 命令，兼容打包后内置 node 无 npm 的情况；也不触发 npm prune，安全）
+async function installPlugin(name) {
+  const installRoot = path.join(dshHomeDir(), 'profiles', 'node_modules');
+  const pkgPath = path.join(dshHomeDir(), 'profiles', 'web', 'package.json');
+  const tmpDir = path.join(os.tmpdir(), 'dsh-install-' + Date.now());
+  fs.mkdirSync(tmpDir, { recursive: true });
+  try {
+    // 1. 查询 registry 获取最新版本与 tarball 地址
+    const encoded = name.startsWith('@') ? name.replace('/', '%2F') : name;
+    const metaRes = await fetch('https://registry.npmmirror.com/' + encoded + '/latest', {
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!metaRes.ok) throw new Error('查询包信息失败（HTTP ' + metaRes.status + '）');
+    const meta = await metaRes.json();
+    if (!meta.dist || !meta.dist.tarball) throw new Error('包不存在或没有 tarball');
+    // 2. 下载 tarball
+    const tgzRes = await fetch(meta.dist.tarball, { signal: AbortSignal.timeout(120_000) });
+    if (!tgzRes.ok) throw new Error('下载失败（HTTP ' + tgzRes.status + '）');
+    const tgzBuf = Buffer.from(await tgzRes.arrayBuffer());
+    const tgzPath = path.join(tmpDir, 'pkg.tgz');
+    fs.writeFileSync(tgzPath, tgzBuf);
+    // 3. tar 解压（Windows 自带 tar.exe）
+    require('child_process').execFileSync('tar', ['-xzf', tgzPath, '-C', tmpDir], {
+      windowsHide: true,
+    });
+    // 4. 解压出的 package/ 移到目标位置（支持 scoped 包）
+    const srcPkg = path.join(tmpDir, 'package');
+    if (!fs.existsSync(srcPkg)) throw new Error('解压失败：未找到 package 目录');
+    const parts = name.startsWith('@') ? name.split('/') : [null, name];
+    const scopeDir = parts[0];
+    const pkgName = parts[1];
+    let targetDir;
+    if (scopeDir) {
+      targetDir = path.join(installRoot, scopeDir, pkgName);
+      fs.mkdirSync(path.dirname(targetDir), { recursive: true });
+    } else {
+      targetDir = path.join(installRoot, pkgName);
+    }
+    if (fs.existsSync(targetDir)) fs.rmSync(targetDir, { recursive: true, force: true });
+    fs.renameSync(srcPkg, targetDir);
+    // 5. 追加到 bundles 列表
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    if (!pkg.dsh) pkg.dsh = {};
+    if (!pkg.dsh.profile) pkg.dsh.profile = {};
+    if (!pkg.dsh.profile.bundles) pkg.dsh.profile.bundles = [];
+    if (!pkg.dsh.profile.bundles.includes(name)) {
+      pkg.dsh.profile.bundles.push(name);
+    }
+    fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf8');
+    return true;
+  } catch (e) {
+    return e.message || '安装失败';
+  } finally {
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* 忽略 */ }
+  }
+}
+ipcMain.handle('dsh:plugin-install', async (event, name) => {
+  return installPlugin(name);
 });
 
 const gotLock = app.requestSingleInstanceLock();

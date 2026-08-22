@@ -88,9 +88,11 @@
   .nav-btn:hover { background: var(--hover); }
   .nav-btn.active { background: var(--active); }
   .nav-btn.active svg { fill: var(--accent); }
+  .nav-btn.bottom { margin-top: auto; margin-bottom: 10px; }
+  .nav-btn.bottom + .nav-btn.bottom { margin-top: 0; margin-bottom: 12px; }
 
   #content { flex: 1; min-width: 0; position: relative; }
-  #content-frame {
+  #frame-harness, #frame-manage {
     position: absolute; inset: 0; width: 100%; height: 100%; border: none;
     background: var(--bg);
   }
@@ -107,9 +109,30 @@
     transition: opacity .12s ease; z-index: 999;
   }
   .tip.show { opacity: 1; }
+  /* 全屏蒙版（重启服务时显示） */
+  #overlay {
+    position: fixed; inset: 0; z-index: 10000;
+    background: rgba(10, 16, 30, 0.6);
+    display: none; flex-direction: column; align-items: center; justify-content: center;
+    gap: 18px; backdrop-filter: blur(3px);
+  }
+  #overlay.show { display: flex; }
+  #overlay .ov-spinner {
+    width: 40px; height: 40px;
+    border: 3px solid rgba(255, 255, 255, 0.2);
+    border-top-color: #4f8cff;
+    border-radius: 50%;
+    animation: ov-spin .8s linear infinite;
+  }
+  @keyframes ov-spin { to { transform: rotate(360deg); } }
+  #overlay .ov-text { font-size: 14px; color: #e2e8f0; }
 </style>
 </head>
 <body>
+  <div id="overlay">
+    <div class="ov-spinner"></div>
+    <div class="ov-text" id="overlay-text">正在重启服务…</div>
+  </div>
   <div id="titlebar">
     <img class="logo" src="../build/icon.png" alt="" />
     <span class="app-title">DeepSeek Harness</span>
@@ -133,9 +156,16 @@
       <button class="nav-btn" data-page="skills">
         <svg viewBox="0 0 24 24"><path d="M12 17.3l6.2 3.7-1.6-7L22 9.2l-7.2-.6L12 2 9.2 8.6 2 9.2l5.4 4.8-1.6 7L12 17.3z"/></svg>
       </button>
+      <button class="nav-btn bottom" id="btn-restart" title="重启服务">
+        <svg viewBox="0 0 24 24"><path d="M12 5V1L7 6l5 5V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z"/></svg>
+      </button>
+      <button class="nav-btn bottom" id="btn-update" title="检查更新">
+        <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm3.5 11h-2v4h-3v-4h-2l4.5-4.5z"/></svg>
+      </button>
     </nav>
     <main id="content">
-      <iframe id="content-frame" src="about:blank"></iframe>
+      <iframe id="frame-harness" src="about:blank"></iframe>
+      <iframe id="frame-manage" src="about:blank" style="display:none"></iframe>
     </main>
   </div>
   <div class="tip" id="tip"></div>
@@ -155,16 +185,77 @@
       skills: { url: 'manage.html?page=skills', label: 'Skills 管理' },
     };
 
-    // 导航切换（纯前端，iframe 换 src）
-    const frame = document.getElementById('content-frame');
-    const btns = document.querySelectorAll('.nav-btn');
+    // 导航切换：Harness 常驻（不重新加载），管理页复用单个 iframe
+    const frameHarness = document.getElementById('frame-harness');
+    const frameManage = document.getElementById('frame-manage');
+    const btns = document.querySelectorAll('.nav-btn[data-page]');
     const tip = document.getElementById('tip');
+    let manageLoaded = '';
 
     function selectPage(page) {
       btns.forEach((x) => x.classList.toggle('active', x.dataset.page === page));
-      const target = PAGES[page] || PAGES.harness;
-      frame.src = target.url;
       window.dshNav.select(page); // 通知主进程（记录当前页/数据接口）
+      if (page === 'harness') {
+        // 显示常驻的 DSH iframe，秒切无加载
+        frameManage.style.display = 'none';
+        frameHarness.style.display = '';
+      } else {
+        // 管理页：目标不同才重新加载（同页切换不刷新）
+        frameHarness.style.display = 'none';
+        const url = PAGES[page].url;
+        if (manageLoaded !== url) {
+          frameManage.src = url;
+          manageLoaded = url;
+        }
+        frameManage.style.display = '';
+      }
+    }
+
+    // 重启服务按钮（不退出窗口，全屏蒙版 + 加载动画）
+    document.getElementById('btn-restart').addEventListener('click', async () => {
+      var overlay = document.getElementById('overlay');
+      var overlayText = document.getElementById('overlay-text');
+      overlayText.textContent = '正在重启服务…';
+      overlay.classList.add('show');
+      const ok = await window.dshNav.restartService();
+      if (ok === true) {
+        overlayText.textContent = '服务已重启';
+        setTimeout(() => overlay.classList.remove('show'), 600);
+      } else {
+        overlayText.textContent = '重启失败: ' + (ok || '未知错误');
+        setTimeout(() => overlay.classList.remove('show'), 2000);
+      }
+    });
+
+    // 检查更新按钮（手动）
+    document.getElementById('btn-update').addEventListener('click', async () => {
+      tip.textContent = '正在检查更新…';
+      tip.style.left = '70px';
+      tip.style.top = '52px';
+      tip.classList.add('show');
+      const r = await window.dshNav.checkUpdate();
+      if (r.error) {
+        tip.textContent = '检查更新失败: ' + r.error;
+      } else if (r.hasUpdate) {
+        tip.textContent = '发现新版本：' + r.remote + '（当前 ' + (r.local || '未知') + '）';
+      } else {
+        tip.textContent = '已是最新版本' + (r.local ? '（' + r.local + '）' : '');
+      }
+      setTimeout(() => tip.classList.remove('show'), 4000);
+    });
+
+    // 启动时自动检查更新结果（主进程推送）
+    if (window.dshNav.onUpdateResult) {
+      window.dshNav.onUpdateResult((r) => {
+        if (!r || r.error) return;
+        if (r.hasUpdate) {
+          tip.textContent = '发现新版本：' + r.remote + '（当前 ' + (r.local || '未知') + '）';
+          tip.style.left = '70px';
+          tip.style.top = '52px';
+          tip.classList.add('show');
+          setTimeout(() => tip.classList.remove('show'), 6000);
+        }
+      });
     }
 
     btns.forEach((b) => {
@@ -180,9 +271,10 @@
       b.addEventListener('mouseleave', () => tip.classList.remove('show'));
     });
 
-    // 初始化：先取 Harness 地址（支持 DSH_DESKTOP_URL 覆盖）再进入
+    // 初始化：先取 Harness 地址（支持 DSH_DESKTOP_URL 覆盖），加载常驻 iframe 后进入
     window.dshNav.getHarnessUrl().then((url) => {
       PAGES.harness.url = url;
+      frameHarness.src = url;
       selectPage('harness');
     });
 

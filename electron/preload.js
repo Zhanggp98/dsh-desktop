@@ -18,6 +18,13 @@ contextBridge.exposeInMainWorld('dshNav', {
   select: (page) => ipcRenderer.send('dsh:nav-select', page),
   getHarnessUrl: () => ipcRenderer.invoke('dsh:get-harness-url'),
   getData: () => ipcRenderer.invoke('dsh:get-data'),
+  pluginRemove: (id) => ipcRenderer.invoke('dsh:plugin-remove', id),
+  pluginInstall: (name) => ipcRenderer.invoke('dsh:plugin-install', name),
+  restartService: () => ipcRenderer.invoke('dsh:restart-service'),
+  checkUpdate: () => ipcRenderer.invoke('dsh:check-update'),
+  onUpdateResult: (cb) => {
+    ipcRenderer.on('dsh:update-result', (e, result) => cb(result));
+  },
   onTheme: (cb) => {
     ipcRenderer.on('dsh:theme', (e, theme) => cb(theme));
   },

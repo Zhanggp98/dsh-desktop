@@ -11,7 +11,8 @@
     --accent: #4f8cff;
     --card: rgba(255, 255, 255, 0.05);
     --border: rgba(255, 255, 255, 0.09);
-    --hover: rgba(255, 255, 255, 0.08);
+    --danger: #ef4444;
+    --success: #10b981;
   }
   :root[data-theme="light"] {
     --bg: #eef2f7;
@@ -20,7 +21,8 @@
     --accent: #4f8cff;
     --card: rgba(255, 255, 255, 0.9);
     --border: rgba(15, 23, 42, 0.08);
-    --hover: rgba(15, 23, 42, 0.07);
+    --danger: #ef4444;
+    --success: #059669;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { height: 100%; }
@@ -33,71 +35,336 @@
     transition: background .3s ease;
   }
   h1 { font-size: 18px; font-weight: 600; margin-bottom: 4px; }
-  .sub { font-size: 13px; color: var(--text-dim); margin-bottom: 20px; }
-  .empty {
-    padding: 40px 0; text-align: center; color: var(--text-dim); font-size: 13px;
+  .sub { font-size: 13px; color: var(--text-dim); margin-bottom: 16px; }
+
+  /* 标题行（标题 + 右侧刷新按钮） */
+  .header-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .header-row .btn { margin-top: 2px; }
+
+  /* 工具栏 */
+  .toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+  .toolbar input {
+    flex: 1; min-width: 180px; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--card); color: var(--text); font: inherit; font-size: 13px; outline: none;
   }
+  .toolbar input:focus { border-color: var(--accent); }
+  .section-title { font-size: 13px; font-weight: 600; color: var(--text-dim); margin: 18px 0 10px; }
+  .empty { padding: 40px 0; text-align: center; color: var(--text-dim); font-size: 13px; }
+
+  /* 卡片网格（固定宽度，统一大小） */
+  .card-grid { display: grid; grid-template-columns: repeat(auto-fill, 280px); gap: 14px; }
   .card {
     background: var(--card);
     border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 14px 16px;
-    margin-bottom: 10px;
-    display: flex; align-items: center; gap: 12px;
+    border-radius: 14px;
+    padding: 20px 18px 16px;
+    display: flex; flex-direction: column; gap: 10px;
+    width: 280px; height: 170px;
+    transition: box-shadow .15s ease;
   }
-  .card .name { font-size: 14px; font-weight: 500; }
-  .card .meta { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
-  .card .spacer { flex: 1; }
-  .badge {
-    font-size: 11px; padding: 2px 8px; border-radius: 10px;
-    background: rgba(79, 140, 255, 0.15); color: var(--accent);
+  .card:hover { box-shadow: 0 3px 12px rgba(0,0,0,.2); }
+  .card .card-name {
+    font-size: 15px; font-weight: 600;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .badge.off { background: rgba(148, 163, 184, 0.15); color: var(--text-dim); }
+  .card .card-meta {
+    font-size: 13px; color: var(--text-dim); line-height: 1.5;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .card .card-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: auto; }
+  .badge { font-size: 11px; padding: 2px 10px; border-radius: 10px; white-space: nowrap; }
+  .badge.third { background: rgba(79, 140, 255, 0.15); color: var(--accent); }
+  .badge.core { background: rgba(148, 163, 184, 0.15); color: var(--text-dim); }
+
+  .btn {
+    font-size: 12px; padding: 5px 12px; border-radius: 8px; border: 1px solid var(--border);
+    background: transparent; color: var(--text); cursor: pointer; white-space: nowrap;
+    transition: background .15s ease;
+  }
+  .btn:hover { background: rgba(255,255,255,.06); }
+  .btn.danger { border-color: var(--danger); color: var(--danger); }
+  .btn.danger:hover { background: var(--danger); color: #fff; }
+
+  /* 模态框（替代原生 confirm，风格统一） */
+  .modal-overlay {
+    position: fixed; inset: 0; z-index: 1000;
+    background: rgba(0, 0, 0, 0.5);
+    display: none; align-items: center; justify-content: center;
+  }
+  .modal-overlay.show { display: flex; }
+  .modal {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 22px 24px 18px;
+    width: 380px; max-width: 92%;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+  }
+  .modal-title { font-size: 15px; font-weight: 600; margin-bottom: 10px; }
+  .modal-body { font-size: 13px; color: var(--text-dim); line-height: 1.7; margin-bottom: 18px; white-space: pre-line; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+  /* 安装区 */
+  .install-area {
+    margin-top: 24px; padding: 18px 20px; border-radius: 14px;
+    border: 1px dashed var(--border);
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  .install-area label { font-size: 13px; color: var(--text-dim); }
+  .install-area input {
+    flex: 1; min-width: 200px; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--card); color: var(--text); font: inherit; font-size: 13px; outline: none;
+  }
+  .install-area input:focus { border-color: var(--accent); }
+  .install-area .btn.primary { border-color: var(--accent); color: var(--accent); }
+  .install-area .btn.primary:hover { background: var(--accent); color: #fff; }
+  .install-status { width: 100%; font-size: 12px; color: var(--text-dim); margin-top: 4px; }
 </style>
 </head>
 <body>
-  <h1 id="title">…</h1>
-  <div class="sub" id="subtitle">…</div>
-  <div id="list"><div class="empty">加载中…</div></div>
+  <div class="header-row">
+    <div>
+      <h1 id="title">…</h1>
+      <div class="sub" id="subtitle">…</div>
+    </div>
+    <button class="btn" id="refresh-btn">⟳ 刷新</button>
+  </div>
+  <div class="toolbar">
+    <input id="install-input" placeholder="输入包名（如 @dsh-local/my-plugin）" />
+    <button class="btn primary" id="install-btn">安装</button>
+    <span class="install-status" id="install-status"></span>
+  </div>
+  <div id="plugins-area">
+    <div id="list"><div class="empty">加载中…</div></div>  </div>
+  <div id="generic-list" style="display:none"><div class="empty">暂无数据</div></div>
+
+  <!-- 模态框（统一风格弹窗） -->
+  <div class="modal-overlay" id="modal-overlay">
+    <div class="modal">
+      <div class="modal-title" id="modal-title"></div>
+      <div class="modal-body" id="modal-body"></div>
+      <div class="modal-actions">
+        <button class="btn" id="modal-cancel">取消</button>
+        <button class="btn danger" id="modal-ok">确定</button>
+      </div>
+    </div>
+  </div>
   <script>
     const PAGES = {
-      plugins: { title: '插件管理', sub: '已安装的插件列表' },
-      mcp: { title: 'MCP 管理', sub: 'MCP 服务器配置' },
-      skills: { title: 'Skills 管理', sub: '已加载的技能' },
+      plugins: { title: '插件管理', sub: '管理已安装的插件' },
+      mcp: { title: 'MCP 管理', sub: 'MCP 服务器配置（功能开发中）' },
+      skills: { title: 'Skills 管理', sub: '已加载的技能（功能开发中）' },
     };
-    const PAGE_NAMES = { harness: 'Harness', plugins: '插件', mcp: 'MCP', skills: 'Skills' };
+    const nav = window.parent && window.parent.dshNav;
 
-    async function init() {
-      // 同源 iframe：通过父页面（nav.html）的 preload 桥接主进程
-      const nav = window.parent && window.parent.dshNav;
-      const page = new URLSearchParams(location.search).get('page') || 'plugins';
-      const meta = PAGES[page] || PAGES.plugins;
-      document.getElementById('title').textContent = meta.title;
-      document.getElementById('subtitle').textContent = meta.sub;
+    // 统一风格确认框（返回 Promise<boolean>）
+    function showConfirm(title, message, okText) {
+      return new Promise((resolve) => {
+        document.getElementById('modal-title').textContent = title;
+        document.getElementById('modal-body').textContent = message;
+        document.getElementById('modal-ok').textContent = okText || '确定';
+        document.getElementById('modal-overlay').classList.add('show');
+        var done = false;
+        var close = function (val) {
+          if (done) return;
+          done = true;
+          document.getElementById('modal-overlay').classList.remove('show');
+          resolve(val);
+        };
+        document.getElementById('modal-ok').onclick = function () { close(true); };
+        document.getElementById('modal-cancel').onclick = function () { close(false); };
+      });
+    }
+    // 轻提示（2.5s 后消失）
+    function showToast(message) {
+      var el = document.createElement('div');
+      el.style.cssText =
+        'position:fixed;bottom:28px;left:50%;transform:translateX(-50%);' +
+        'background:var(--bg);color:var(--text);border:1px solid var(--border);' +
+        'border-radius:8px;padding:8px 16px;font-size:13px;z-index:1001;box-shadow:0 4px 12px rgba(0,0,0,.2);';
+      el.textContent = message;
+      document.body.appendChild(el);
+      setTimeout(function () { el.remove(); }, 2500);
+    }
+
+    // 主题跟随：从父页面（nav.html）读取 data-theme 并监听变化（同源 iframe）
+    function syncTheme() {
+      var parentTheme = '';
+      try {
+        parentTheme = window.parent.document.documentElement.getAttribute('data-theme') || '';
+      } catch (e) { /* 忽略 */ }
+      if (parentTheme) {
+        document.documentElement.setAttribute('data-theme', parentTheme);
+      }
+    }
+    syncTheme();
+    try {
+      new MutationObserver(syncTheme).observe(
+        window.parent.document.documentElement,
+        { attributes: true, attributeFilter: ['data-theme'] }
+      );
+    } catch (e) { /* 忽略 */ }
+
+    function shortName(id) {
+      if (id.startsWith('@deepseek-ai/')) return 'DSH ' + id.split('/')[1];
+      const p = id.split('/');
+      return p.length === 2 ? p[1] : id;
+    }
+
+    function renderPlugins(data) {
       const list = document.getElementById('list');
       list.innerHTML = '';
-      if (!nav) {
-        list.innerHTML = '<div class="empty">桥接不可用</div>';
+      const core = data.filter(p => p.isCore);
+      const third = data.filter(p => !p.isCore);
+      if (third.length === 0 && core.length === 0) {
+        list.innerHTML = '<div class="empty">暂无已安装的第三方插件</div>';
         return;
       }
-      const data = await nav.getData();
-      if (!data || !Array.isArray(data) || data.length === 0) {
-        list.innerHTML = '<div class="empty">暂无数据（功能开发中）</div>';
-        return;
-      }
-      data.forEach((item) => {
+
+      function cardEl(p, isThird) {
         const card = document.createElement('div');
         card.className = 'card';
-        const status = item.enabled === false
-          ? '<span class="badge off">已停用</span>'
-          : '<span class="badge">启用</span>';
         card.innerHTML =
-          '<div><div class="name"></div><div class="meta"></div></div>' +
-          '<div class="spacer"></div>' + status;
-        card.querySelector('.name').textContent = item.name || item.id || '';
-        card.querySelector('.meta').textContent = item.detail || item.description || '';
-        list.appendChild(card);
-      });
+          '<div class="card-name" title="' + (p.name || '') + '">' + shortName(p.name) + '</div>' +
+          '<div class="card-meta" title="' + (p.detail || '') + '">' + (p.detail || '—') + '</div>' +
+          '<div class="card-footer">' +
+            '<span class="badge ' + (isThird ? 'third' : 'core') + '">' + (isThird ? '第三方' : '核心') + '</span>' +
+            (isThird ? '<button class="btn danger">卸载</button>' : '') +
+          '</div>';
+        if (isThird) {
+          card.querySelector('.btn.danger').addEventListener('click', async () => {
+            const ok = await showConfirm(
+              '卸载插件',
+              '确定卸载插件「' + shortName(p.name) + '」？\n\n卸载后将自动重启服务以生效，当前页面会刷新。',
+              '卸载'
+            );
+            if (!ok) return;
+            // 复用父窗口（nav.html）的重启蒙版
+            var pd = window.parent.document;
+            var ov = pd.getElementById('overlay');
+            var ovt = pd.getElementById('overlay-text');
+            if (ov) ov.classList.add('show');
+            if (ovt) ovt.textContent = '正在卸载并重启服务…';
+            if (await nav.pluginRemove(p.id)) {
+              card.remove();
+              // 重启服务使其生效
+              var r = await nav.restartService();
+              if (ov) {
+                if (r === true) {
+                  if (ovt) ovt.textContent = '服务已重启';
+                  setTimeout(function () { ov.classList.remove('show'); }, 600);
+                  showToast('插件已卸载，服务已重启');
+                } else {
+                  if (ovt) ovt.textContent = '重启失败: ' + (r || '未知错误');
+                  setTimeout(function () { ov.classList.remove('show'); }, 2000);
+                  showToast('插件已卸载，但服务重启失败');
+                }
+              }
+            } else {
+              if (ov) ov.classList.remove('show');
+              showToast('卸载失败');
+            }
+          });
+        }
+        return card;
+      }
+
+      if (third.length > 0) {
+        var t = document.createElement('div');
+        t.className = 'section-title';
+        t.textContent = '第三方插件';
+        list.appendChild(t);
+        var g = document.createElement('div');
+        g.className = 'card-grid';
+        third.forEach(p => g.appendChild(cardEl(p, true)));
+        list.appendChild(g);
+      }
+      if (core.length > 0) {
+        var t2 = document.createElement('div');
+        t2.className = 'section-title';
+        t2.textContent = '核心 bundle';
+        list.appendChild(t2);
+        var g2 = document.createElement('div');
+        g2.className = 'card-grid';
+        core.forEach(p => g2.appendChild(cardEl(p, false)));
+        list.appendChild(g2);
+      }
+    }
+
+    // 刷新
+    document.getElementById('refresh-btn').addEventListener('click', async () => {
+      var data = await nav.getData();
+      renderPlugins(data || []);
+    });
+
+    // 安装插件（确认后安装 + 重启服务，复用父窗口蒙版）
+    document.getElementById('install-btn').addEventListener('click', async () => {
+      var input = document.getElementById('install-input');
+      var status = document.getElementById('install-status');
+      var name = input.value.trim();
+      if (!name) { status.textContent = '请输入包名'; return; }
+      var ok = await showConfirm(
+        '安装插件',
+        '确定安装「' + name + '」？\n\n安装后将自动重启服务以生效，当前页面会刷新。',
+        '安装'
+      );
+      if (!ok) return;
+      var pd = window.parent.document;
+      var ov = pd.getElementById('overlay');
+      var ovt = pd.getElementById('overlay-text');
+      if (ov) ov.classList.add('show');
+      if (ovt) ovt.textContent = '正在安装并重启服务…';
+      status.textContent = '正在安装…';
+      try {
+        var result = await nav.pluginInstall(name);
+        if (result === true) {
+          status.textContent = '安装成功';
+          input.value = '';
+          // 重新加载数据刷新列表
+          var data = await nav.getData();
+          renderPlugins(data || []);
+          // 重启服务使其生效
+          var r = await nav.restartService();
+          if (ov) {
+            if (r === true) {
+              if (ovt) ovt.textContent = '服务已重启';
+              setTimeout(function () { ov.classList.remove('show'); }, 600);
+              showToast('插件已安装，服务已重启');
+            } else {
+              if (ovt) ovt.textContent = '重启失败: ' + (r || '未知错误');
+              setTimeout(function () { ov.classList.remove('show'); }, 2000);
+              showToast('插件已安装，但服务重启失败');
+            }
+          }
+          setTimeout(function() { status.textContent = ''; }, 3000);
+        } else {
+          if (ov) ov.classList.remove('show');
+          status.textContent = '安装失败: ' + (result || '未知错误');
+          showToast('安装失败');
+        }
+      } catch(e) {
+        if (ov) ov.classList.remove('show');
+        status.textContent = '安装出错: ' + e.message;
+        showToast('安装出错');
+      }
+    });
+
+    async function init() {
+      var page = new URLSearchParams(location.search).get('page') || 'plugins';
+      var meta = PAGES[page] || PAGES.plugins;
+      document.getElementById('title').textContent = meta.title;
+      document.getElementById('subtitle').textContent = meta.sub;
+      if (!nav) { document.getElementById('list').innerHTML = '<div class="empty">桥接不可用</div>'; return; }
+      var isPlugins = page === 'plugins';
+      document.getElementById('plugins-area').style.display = isPlugins ? '' : 'none';
+      document.getElementById('generic-list').style.display = isPlugins ? 'none' : '';
+      if (isPlugins) {
+        var data = await nav.getData();
+        renderPlugins(data || []);
+      } else {
+        var list = document.getElementById('generic-list');
+        list.innerHTML = '<div class="empty">功能开发中</div>';
+      }
     }
     init();
   </script>
