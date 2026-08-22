@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld('dshNav', {
   onWallpaper: (cb) => {
     ipcRenderer.on('dsh:wallpaper', (e, w) => cb(w));
   },
+  notifyWallpaperChanged: () => ipcRenderer.send('dsh:wallpaper-changed'),
   onTheme: (cb) => {
     ipcRenderer.on('dsh:theme', (e, theme) => cb(theme));
   },

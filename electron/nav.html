@@ -377,19 +377,32 @@
       });
     }
 
-    // 壁纸同步：主进程读取 Harness 页面的壁纸变量，设置为壳窗口背景（导航栏/标题栏毛玻璃透出）
+    // 背景同步：把 DSH 页面解析出的背景（主题色或壁纸）设置到壳窗口 body，
+    // 导航栏/标题栏保持默认中性半透明（light/dark 各自定义），毛玻璃自然透出背景
     if (window.dshNav && window.dshNav.onWallpaper) {
       window.dshNav.onWallpaper((w) => {
         var img = w && w.img;
         var fill = w && w.fill;
-        if (img && img !== 'none' && img !== '') {
+        var base = (w && (w.base || w.layer1 || w.overlay)) || '';
+        var hasImg = !!(img && img !== 'none' && img !== '');
+        if (hasImg) {
+          // 壁纸：body 背景用图片，导航栏半透明透出
           document.body.style.backgroundImage = img;
           document.body.style.backgroundSize = 'cover';
           document.body.style.backgroundPosition = 'center';
           document.body.style.backgroundRepeat = 'no-repeat';
-          if (fill) document.body.style.backgroundColor = fill;
+          document.body.style.backgroundColor = fill || '';
         } else {
+          // 无壁纸：body 背景用 DSH 主题背景色（浅色/深色由 token 决定），透出主题色
           document.body.style.backgroundImage = 'none';
+          document.body.style.backgroundColor = base || '';
+        }
+      });
+      // 事件驱动：Harness iframe 内 body 壁纸相关属性变化（MutationObserver 注入）→ postMessage 通知 → 转发主进程同步
+      window.addEventListener('message', (ev) => {
+        var d = ev && ev.data;
+        if (d && d.source === 'dsh-harness' && d.type === 'body-changed') {
+          window.dshNav.notifyWallpaperChanged();
         }
       });
     }

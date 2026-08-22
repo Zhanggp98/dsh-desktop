@@ -356,7 +356,18 @@ function createWindow() {
   mainWindow.once('ready-to-show', () => mainWindow.show());
   mainWindow.loadFile(path.join(__dirname, 'nav.html'));
   // 壳页面加载完成后立即推送初始主题（避免首次启动不随主题）
-  mainWindow.webContents.on('did-finish-load', () => applySplashTheme());
+  mainWindow.webContents.on('did-finish-load', () => {
+    applySplashTheme();
+    // 初始壁纸同步（等 Harness iframe 加载完成）
+    setTimeout(syncWallpaper, 1_500);
+  });
+
+  // Harness iframe 每次加载完成后重新注入 body 变化监听（observer 随页面销毁）
+  mainWindow.webContents.on('did-frame-finish-load', (e, isMainFrame) => {
+    if (!isMainFrame) {
+      setTimeout(ensureHarnessObserver, 300);
+    }
+  });
 
   // 关闭按钮：弹出应用内选择框（勾选 关闭窗口/关闭服务）
   mainWindow.on('close', (e) => {
@@ -1240,20 +1251,37 @@ function autoCheckUpdate() {
   }, 4_000);
 }
 
-// 从 Harness iframe 读取 dsh-bg 壁纸变量，同步给壳窗口（导航栏/标题栏毛玻璃透出背景）
+// 从 Harness iframe 读取壁纸与主题色 CSS 变量，同步给壳窗口（导航栏/标题栏毛玻璃透出背景）
+// 与具体插件解耦：只读 DSH 标准 CSS 变量（壁纸 --dsh-bg-* / 主题 --dsw-alias-* / --dsw-specific-*）
 function syncWallpaper() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   try {
     const frames = mainWindow.webContents.mainFrame.frames;
     for (const f of frames) {
       if (f.url && f.url.indexOf('localhost:' + PORT) !== -1) {
-        f.executeJavaScript(
-          "JSON.stringify({img:getComputedStyle(document.body).getPropertyValue('--dsh-bg-image')||'',fill:getComputedStyle(document.body).getPropertyValue('--dsh-bg-fill')||''})"
-        )
+        f.executeJavaScript(`JSON.stringify((function(){
+          var s=getComputedStyle(document.body);
+          return {
+            bg:document.body.getAttribute('data-dsh-bg')||'',
+            img:s.getPropertyValue('--dsh-bg-image')||'',
+            fill:s.getPropertyValue('--dsh-bg-fill')||'',
+            base:s.getPropertyValue('--dsw-alias-bg-base')||'',
+            layer1:s.getPropertyValue('--dsw-alias-bg-layer-1')||'',
+            layer2:s.getPropertyValue('--dsw-alias-bg-layer-2')||'',
+            overlay:s.getPropertyValue('--dsw-alias-bg-overlay')||'',
+            sidebar:s.getPropertyValue('--dsw-specific-sidebar-fill')||''
+          };
+        })())`)
           .then((r) => {
             try {
               const obj = JSON.parse(r);
               if (mainWindow && !mainWindow.isDestroyed()) {
+                // 防御：仅当 body 声明 data-dsh-bg="image"（壁纸激活）时才同步壁纸，
+                // 避免残留变量导致壳窗口显示过期背景
+                if (obj.bg !== 'image') {
+                  obj.img = '';
+                  obj.fill = '';
+                }
                 mainWindow.webContents.send('dsh:wallpaper', obj);
               }
             } catch { /* 忽略 */ }
@@ -1264,8 +1292,41 @@ function syncWallpaper() {
     }
   } catch { /* 帧不可用 */ }
 }
-// 定期同步壁纸（dsh-bg 插件设置背景时，壳窗口跟随）
-setInterval(syncWallpaper, 2_000);
+
+// 在 Harness iframe 注入通用 body 变化监听（MutationObserver）：
+// 监听 DSH 页面本体的 style / data-dsh-bg 属性变化，变化时通知壳窗口立即同步。
+// 不依赖任何具体插件——任何修改 body 壁纸变量的机制都会触发。
+function ensureHarnessObserver() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  try {
+    const frames = mainWindow.webContents.mainFrame.frames;
+    for (const f of frames) {
+      if (f.url && f.url.indexOf('localhost:' + PORT) !== -1) {
+        f.executeJavaScript(`(() => {
+          if (window.__dshHarnessObserver) return 'exists';
+          const notify = () => {
+            try { window.parent.postMessage({ source: 'dsh-harness', type: 'body-changed' }, '*'); } catch (e) {}
+          };
+          const obs = new MutationObserver(notify);
+          obs.observe(document.body, {
+            attributes: true,
+            attributeFilter: ['style', 'data-dsh-bg'],
+            subtree: false,
+          });
+          window.__dshHarnessObserver = obs;
+          return 'installed';
+        })()`)
+          .catch(() => {});
+        return;
+      }
+    }
+  } catch { /* 帧不可用 */ }
+}
+
+// 事件驱动：iframe 内 body 壁纸相关属性变化 → postMessage → nav.html 转发 → 这里触发同步
+ipcMain.on('dsh:wallpaper-changed', () => {
+  syncWallpaper();
+});
 
 // 安装第三方插件：直接用 fetch 从 registry 下载 tarball → tar 解压到 profiles/node_modules
 // （不依赖 npm 命令，兼容打包后内置 node 无 npm 的情况；也不触发 npm prune，安全）
