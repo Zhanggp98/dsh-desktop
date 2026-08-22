@@ -1,8 +1,9 @@
 'use strict';
 
 /**
- * 主窗口 preload：向页面暴露窗口控制接口（自绘标题栏按钮使用）。
- * 页面通过 window.dshWin.minimize() / toggleMaximize() / close() 控制窗口。
+ * 壳页面（标题栏 + 导航栏）preload：
+ *  - window.dshWin   自绘标题栏窗口按钮（minimize / toggleMaximize / close）
+ *  - window.dshNav   导航切换（select）与主题跟随（onTheme）
  */
 
 const { contextBridge, ipcRenderer } = require('electron');
@@ -11,4 +12,13 @@ contextBridge.exposeInMainWorld('dshWin', {
   minimize: () => ipcRenderer.send('dsh:win-control', 'minimize'),
   toggleMaximize: () => ipcRenderer.send('dsh:win-control', 'toggle-maximize'),
   close: () => ipcRenderer.send('dsh:win-control', 'close'),
+});
+
+contextBridge.exposeInMainWorld('dshNav', {
+  select: (page) => ipcRenderer.send('dsh:nav-select', page),
+  getHarnessUrl: () => ipcRenderer.invoke('dsh:get-harness-url'),
+  getData: () => ipcRenderer.invoke('dsh:get-data'),
+  onTheme: (cb) => {
+    ipcRenderer.on('dsh:theme', (e, theme) => cb(theme));
+  },
 });

@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>管理</title>
+<style>
+  :root {
+    --bg: #0f1521;
+    --text: #e2e8f0;
+    --text-dim: #94a3b8;
+    --accent: #4f8cff;
+    --card: rgba(255, 255, 255, 0.05);
+    --border: rgba(255, 255, 255, 0.09);
+    --hover: rgba(255, 255, 255, 0.08);
+  }
+  :root[data-theme="light"] {
+    --bg: #eef2f7;
+    --text: #0f172a;
+    --text-dim: #64748b;
+    --accent: #4f8cff;
+    --card: rgba(255, 255, 255, 0.9);
+    --border: rgba(15, 23, 42, 0.08);
+    --hover: rgba(15, 23, 42, 0.07);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    padding: 24px 28px;
+    overflow-y: auto;
+    transition: background .3s ease;
+  }
+  h1 { font-size: 18px; font-weight: 600; margin-bottom: 4px; }
+  .sub { font-size: 13px; color: var(--text-dim); margin-bottom: 20px; }
+  .empty {
+    padding: 40px 0; text-align: center; color: var(--text-dim); font-size: 13px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .card .name { font-size: 14px; font-weight: 500; }
+  .card .meta { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+  .card .spacer { flex: 1; }
+  .badge {
+    font-size: 11px; padding: 2px 8px; border-radius: 10px;
+    background: rgba(79, 140, 255, 0.15); color: var(--accent);
+  }
+  .badge.off { background: rgba(148, 163, 184, 0.15); color: var(--text-dim); }
+</style>
+</head>
+<body>
+  <h1 id="title">…</h1>
+  <div class="sub" id="subtitle">…</div>
+  <div id="list"><div class="empty">加载中…</div></div>
+  <script>
+    const PAGES = {
+      plugins: { title: '插件管理', sub: '已安装的插件列表' },
+      mcp: { title: 'MCP 管理', sub: 'MCP 服务器配置' },
+      skills: { title: 'Skills 管理', sub: '已加载的技能' },
+    };
+    const PAGE_NAMES = { harness: 'Harness', plugins: '插件', mcp: 'MCP', skills: 'Skills' };
+
+    async function init() {
+      // 同源 iframe：通过父页面（nav.html）的 preload 桥接主进程
+      const nav = window.parent && window.parent.dshNav;
+      const page = new URLSearchParams(location.search).get('page') || 'plugins';
+      const meta = PAGES[page] || PAGES.plugins;
+      document.getElementById('title').textContent = meta.title;
+      document.getElementById('subtitle').textContent = meta.sub;
+      const list = document.getElementById('list');
+      list.innerHTML = '';
+      if (!nav) {
+        list.innerHTML = '<div class="empty">桥接不可用</div>';
+        return;
+      }
+      const data = await nav.getData();
+      if (!data || !Array.isArray(data) || data.length === 0) {
+        list.innerHTML = '<div class="empty">暂无数据（功能开发中）</div>';
+        return;
+      }
+      data.forEach((item) => {
+        const card = document.createElement('div');
+        card.className = 'card';
+        const status = item.enabled === false
+          ? '<span class="badge off">已停用</span>'
+          : '<span class="badge">启用</span>';
+        card.innerHTML =
+          '<div><div class="name"></div><div class="meta"></div></div>' +
+          '<div class="spacer"></div>' + status;
+        card.querySelector('.name').textContent = item.name || item.id || '';
+        card.querySelector('.meta').textContent = item.detail || item.description || '';
+        list.appendChild(card);
+      });
+    }
+    init();
+  </script>
+</body>
+</html>

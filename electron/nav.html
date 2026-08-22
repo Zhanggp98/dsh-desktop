@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>DeepSeek Harness</title>
+<style>
+  /* ===== 主题变量（默认深色） ===== */
+  :root {
+    --bg: #0f1521;
+    --bg-titlebar: rgba(13, 17, 24, 0.9);
+    --bg-sidebar: #121927;
+    --text: #e2e8f0;
+    --text-dim: #94a3b8;
+    --accent: #4f8cff;
+    --hover: rgba(255, 255, 255, 0.08);
+    --active: rgba(79, 140, 255, 0.18);
+    --border: rgba(255, 255, 255, 0.07);
+    --logo-filter: brightness(0) invert(1);
+    --titlebar-hover: rgba(255, 255, 255, 0.12);
+  }
+  :root[data-theme="light"] {
+    --bg: #eef2f7;
+    --bg-titlebar: rgba(248, 250, 252, 0.92);
+    --bg-sidebar: #e9eef6;
+    --text: #0f172a;
+    --text-dim: #64748b;
+    --accent: #4f8cff;
+    --hover: rgba(15, 23, 42, 0.07);
+    --active: rgba(79, 140, 255, 0.16);
+    --border: rgba(15, 23, 42, 0.08);
+    --logo-filter: none;
+    --titlebar-hover: rgba(15, 23, 42, 0.08);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    background: var(--bg);
+    font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    color: var(--text);
+    display: flex; flex-direction: column;
+    transition: background .3s ease;
+  }
+
+  /* ===== 标题栏（40px，可拖动） ===== */
+  #titlebar {
+    height: 40px; flex: none;
+    display: flex; align-items: center; gap: 8px;
+    padding: 0 0 0 14px;
+    background: var(--bg-titlebar);
+    border-bottom: 1px solid var(--border);
+    -webkit-app-region: drag;
+    user-select: none;
+  }
+  #titlebar .logo { width: 18px; height: 18px; filter: var(--logo-filter); }
+  #titlebar .app-title { font-size: 13px; color: var(--text); letter-spacing: .3px; }
+  #controls {
+    margin-left: auto; display: flex; align-items: center; height: 40px;
+    -webkit-app-region: no-drag;
+  }
+  #controls button {
+    width: 46px; height: 40px; border: none; background: transparent;
+    color: var(--text); font-size: 11px; cursor: default;
+    display: flex; align-items: center; justify-content: center;
+    transition: background .15s ease;
+  }
+  #controls button:hover { background: var(--titlebar-hover); }
+  #controls button.close:hover { background: #e81123 !important; color: #fff !important; }
+
+  /* ===== 主体布局：导航栏 + 内容区 ===== */
+  #layout { flex: 1; display: flex; min-height: 0; }
+
+  #sidebar {
+    width: 64px; flex: none;
+    background: var(--bg-sidebar);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; align-items: center;
+    padding-top: 10px; gap: 6px;
+    user-select: none;
+  }
+  .nav-btn {
+    width: 46px; height: 46px; border: none; border-radius: 12px;
+    background: transparent; cursor: pointer; position: relative;
+    display: flex; align-items: center; justify-content: center;
+    transition: background .15s ease;
+  }
+  .nav-btn svg { width: 22px; height: 22px; fill: var(--text-dim); transition: fill .15s ease; }
+  .nav-btn:hover { background: var(--hover); }
+  .nav-btn.active { background: var(--active); }
+  .nav-btn.active svg { fill: var(--accent); }
+
+  #content { flex: 1; min-width: 0; position: relative; }
+  #content-frame {
+    position: absolute; inset: 0; width: 100%; height: 100%; border: none;
+    background: var(--bg);
+  }
+
+  /* 悬停提示（主窗口 DOM，不会被遮挡） */
+  .tip {
+    position: fixed;
+    background: var(--bg-titlebar);
+    color: var(--text);
+    font-size: 12px; padding: 5px 12px; border-radius: 7px;
+    border: 1px solid var(--border);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+    opacity: 0; pointer-events: none; white-space: nowrap;
+    transition: opacity .12s ease; z-index: 999;
+  }
+  .tip.show { opacity: 1; }
+</style>
+</head>
+<body>
+  <div id="titlebar">
+    <img class="logo" src="../build/icon.png" alt="" />
+    <span class="app-title">DeepSeek Harness</span>
+    <div id="controls">
+      <button id="btn-min" title="最小化">─</button>
+      <button id="btn-max" title="最大化">□</button>
+      <button id="btn-close" class="close" title="关闭">✕</button>
+    </div>
+  </div>
+  <div id="layout">
+    <nav id="sidebar">
+      <button class="nav-btn active" data-page="harness">
+        <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1.5 16.5c-3.2-.6-5-2.5-5.5-5.5h2.2c.6 1.4 1.6 2.4 3 3l.3.3v1.9zm3 0v-1.9l.3-.3c1.4-.6 2.4-1.6 3-3h2.2c-.5 3-2.3 4.9-5.5 5.5zM5.5 11c.5-3 2.3-4.9 5.5-5.5v1.9l-.3.3c-1.4.6-2.4 1.6-3 3H5.5zm10.5 0c-.6-1.4-1.6-2.4-3-3l-.3-.3V5.5c3.2.6 5 2.5 5.5 5.5h-2.2z"/></svg>
+      </button>
+      <button class="nav-btn" data-page="plugins">
+        <svg viewBox="0 0 24 24"><path d="M20.5 11H19V7a2 2 0 0 0-2-2h-4V3.5a2.5 2.5 0 0 0-5 0V5H4a2 2 0 0 0-2 2v3.8h1.5a2.5 2.5 0 0 1 0 5H2V19a2 2 0 0 0 2 2h3.8v-1.5a2.5 2.5 0 0 1 5 0V21H17a2 2 0 0 0 2-2v-4h1.5a2.5 2.5 0 0 0 0-5z"/></svg>
+      </button>
+      <button class="nav-btn" data-page="mcp">
+        <svg viewBox="0 0 24 24"><path d="M7 6h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1zm0-2a3 3 0 0 0-3 3v10a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3V7a3 3 0 0 0-3-3H7zm1 6a1 1 0 1 0 0 2h8a1 1 0 1 0 0-2H8zm0 4a1 1 0 1 0 0 2h4a1 1 0 1 0 0-2H8z"/></svg>
+      </button>
+      <button class="nav-btn" data-page="skills">
+        <svg viewBox="0 0 24 24"><path d="M12 17.3l6.2 3.7-1.6-7L22 9.2l-7.2-.6L12 2 9.2 8.6 2 9.2l5.4 4.8-1.6 7L12 17.3z"/></svg>
+      </button>
+    </nav>
+    <main id="content">
+      <iframe id="content-frame" src="about:blank"></iframe>
+    </main>
+  </div>
+  <div class="tip" id="tip"></div>
+  <script>
+    // dshNav / dshWin 已由 preload (contextBridge) 暴露为全局，直接使用
+
+    // 窗口控制按钮
+    document.getElementById('btn-min').addEventListener('click', () => window.dshWin.minimize());
+    document.getElementById('btn-max').addEventListener('click', () => window.dshWin.toggleMaximize());
+    document.getElementById('btn-close').addEventListener('click', () => window.dshWin.close());
+
+    // 内容区 iframe 目标（本地管理页 or DSH 地址）
+    const PAGES = {
+      harness: { url: '', label: 'Harness' },
+      plugins: { url: 'manage.html?page=plugins', label: '插件管理' },
+      mcp: { url: 'manage.html?page=mcp', label: 'MCP 管理' },
+      skills: { url: 'manage.html?page=skills', label: 'Skills 管理' },
+    };
+
+    // 导航切换（纯前端，iframe 换 src）
+    const frame = document.getElementById('content-frame');
+    const btns = document.querySelectorAll('.nav-btn');
+    const tip = document.getElementById('tip');
+
+    function selectPage(page) {
+      btns.forEach((x) => x.classList.toggle('active', x.dataset.page === page));
+      const target = PAGES[page] || PAGES.harness;
+      frame.src = target.url;
+      window.dshNav.select(page); // 通知主进程（记录当前页/数据接口）
+    }
+
+    btns.forEach((b) => {
+      b.addEventListener('click', () => selectPage(b.dataset.page));
+      // 悬停提示
+      b.addEventListener('mouseenter', () => {
+        const rect = b.getBoundingClientRect();
+        tip.style.left = (rect.right + 8) + 'px';
+        tip.style.top = (rect.top + (rect.height >> 1) - Math.round(tip.offsetHeight / 2)) + 'px';
+        tip.textContent = PAGES[b.dataset.page].label;
+        tip.classList.add('show');
+      });
+      b.addEventListener('mouseleave', () => tip.classList.remove('show'));
+    });
+
+    // 初始化：先取 Harness 地址（支持 DSH_DESKTOP_URL 覆盖）再进入
+    window.dshNav.getHarnessUrl().then((url) => {
+      PAGES.harness.url = url;
+      selectPage('harness');
+    });
+
+    // 主题跟随
+    if (window.dshNav && window.dshNav.onTheme) {
+      window.dshNav.onTheme((theme) => {
+        document.documentElement.setAttribute('data-theme', theme === 'light' ? 'light' : 'dark');
+      });
+    }
+  </script>
+</body>
+</html>
