@@ -63,6 +63,12 @@
     transition: box-shadow .15s ease;
   }
   .card:hover { box-shadow: 0 3px 12px rgba(0,0,0,.2); }
+  /* 卡片过渡动画 */
+  .card.in { animation: card-in .3s ease; }
+  .card.out { animation: card-out .25s ease forwards; }
+  .card.highlight { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+  @keyframes card-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+  @keyframes card-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: scale(0.9); } }
   .card .card-name {
     font-size: 15px; font-weight: 600;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -84,6 +90,23 @@
   .btn:hover { background: rgba(255,255,255,.06); }
   .btn.danger { border-color: var(--danger); color: var(--danger); }
   .btn.danger:hover { background: var(--danger); color: #fff; }
+
+  /* 添加技能卡片（列表首位） */
+  .add-card {
+    width: 280px; height: 170px;
+    border: 2px dashed var(--border); border-radius: 14px;
+    background: transparent; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+    color: var(--text-dim); font: inherit;
+    transition: all .2s ease;
+  }
+  .add-card:hover {
+    border-color: var(--accent); color: var(--accent);
+    background: var(--card-hover);
+  }
+  .add-card .ac-plus { font-size: 30px; line-height: 1; }
+  .add-card .ac-label { font-size: 14px; font-weight: 600; color: var(--text); }
+  .add-card .ac-hint { font-size: 11px; }
 
   /* 模态框（替代原生 confirm，风格统一） */
   .modal-overlay {
@@ -129,10 +152,13 @@
     </div>
     <button class="btn" id="refresh-btn">⟳ 刷新</button>
   </div>
-  <div class="toolbar">
+  <div class="toolbar" id="plugin-toolbar">
     <input id="install-input" placeholder="输入包名（如 @dsh-local/my-plugin）" />
     <button class="btn primary" id="install-btn">安装</button>
     <span class="install-status" id="install-status"></span>
+  </div>
+  <div class="toolbar" id="skill-toolbar" style="display:none">
+    <span class="install-status" id="skill-status"></span>
   </div>
   <div id="plugins-area">
     <div id="list"><div class="empty">加载中…</div></div>  </div>
@@ -152,8 +178,13 @@
   <script>
     const PAGES = {
       plugins: { title: '插件管理', sub: '管理已安装的插件' },
-      mcp: { title: 'MCP 管理', sub: 'MCP 服务器配置（功能开发中）' },
-      skills: { title: 'Skills 管理', sub: '已加载的技能（功能开发中）' },
+      mcp: { title: 'MCP 管理', sub: 'MCP 服务器配置' },
+      skills: { title: 'Skills 管理', sub: '管理可用的技能（skill）' },
+    };
+    const PAGE_EMPTY = {
+      plugins: '暂无已安装的第三方插件',
+      mcp: '尚未配置 MCP 服务器',
+      skills: '暂无可用技能\n\n技能通常来自项目目录或用户技能目录中的 SKILL.md 文件',
     };
     const nav = window.parent && window.parent.dshNav;
 
@@ -223,7 +254,7 @@
 
       function cardEl(p, isThird) {
         const card = document.createElement('div');
-        card.className = 'card';
+        card.className = 'card in';
         card.innerHTML =
           '<div class="card-name" title="' + (p.name || '') + '">' + shortName(p.name) + '</div>' +
           '<div class="card-meta" title="' + (p.detail || '') + '">' + (p.detail || '—') + '</div>' +
@@ -297,12 +328,23 @@
       renderPlugins(data || []);
     });
 
-    // 安装插件（确认后安装 + 重启服务，复用父窗口蒙版）
+    // 高亮指定插件卡片（安装后反馈）
+    function highlightPlugin(id) {
+      var cards = document.querySelectorAll('#list .card');
+      cards.forEach(function (c) {
+        var n = c.querySelector('.card-name');
+        if (n && (n.textContent === id || n.textContent === shortName(id))) {
+          c.classList.add('highlight');
+          setTimeout(function () { c.classList.remove('highlight'); }, 1800);
+        }
+      });
+    }
+
+    // 安装插件（确认后安装 + 重启服务，复用父窗口蒙版；成功靠卡片高亮反馈）
     document.getElementById('install-btn').addEventListener('click', async () => {
       var input = document.getElementById('install-input');
-      var status = document.getElementById('install-status');
       var name = input.value.trim();
-      if (!name) { status.textContent = '请输入包名'; return; }
+      if (!name) return; // 未输入静默
       var ok = await showConfirm(
         '安装插件',
         '确定安装「' + name + '」？\n\n安装后将自动重启服务以生效，当前页面会刷新。',
@@ -314,40 +356,132 @@
       var ovt = pd.getElementById('overlay-text');
       if (ov) ov.classList.add('show');
       if (ovt) ovt.textContent = '正在安装并重启服务…';
-      status.textContent = '正在安装…';
       try {
         var result = await nav.pluginInstall(name);
         if (result === true) {
-          status.textContent = '安装成功';
           input.value = '';
           // 重新加载数据刷新列表
           var data = await nav.getData();
           renderPlugins(data || []);
+          highlightPlugin(name); // 新卡片高亮反馈
           // 重启服务使其生效
           var r = await nav.restartService();
           if (ov) {
             if (r === true) {
               if (ovt) ovt.textContent = '服务已重启';
               setTimeout(function () { ov.classList.remove('show'); }, 600);
-              showToast('插件已安装，服务已重启');
             } else {
               if (ovt) ovt.textContent = '重启失败: ' + (r || '未知错误');
               setTimeout(function () { ov.classList.remove('show'); }, 2000);
               showToast('插件已安装，但服务重启失败');
             }
           }
-          setTimeout(function() { status.textContent = ''; }, 3000);
         } else {
           if (ov) ov.classList.remove('show');
-          status.textContent = '安装失败: ' + (result || '未知错误');
-          showToast('安装失败');
+          showToast('安装失败: ' + (result || '未知错误'));
         }
       } catch(e) {
         if (ov) ov.classList.remove('show');
-        status.textContent = '安装出错: ' + e.message;
-        showToast('安装出错');
+        showToast('安装出错: ' + e.message);
       }
     });
+
+    // 通用卡片渲染（MCP 用；Skills 有专用渲染）
+    function renderGenericCards(data, emptyText) {
+      var list = document.getElementById('generic-list');
+      list.innerHTML = '';
+      if (!data || data.length === 0) {
+        var empty = document.createElement('div');
+        empty.className = 'empty';
+        empty.style.whiteSpace = 'pre-line';
+        empty.textContent = emptyText || '暂无数据';
+        list.appendChild(empty);
+        return;
+      }
+      var grid = document.createElement('div');
+      grid.className = 'card-grid';
+      data.forEach(function (item) {
+        var card = document.createElement('div');
+        card.className = 'card';
+        var name = item.name || item.id || '';
+        var detail = item.detail || item.description || '';
+        card.innerHTML =
+          '<div class="card-name" title="' + name + '">' + name + '</div>' +
+          '<div class="card-meta" title="' + detail + '">' + (detail || '—') + '</div>' +
+          '<div class="card-footer"><span class="badge third">' + (item.tag || '已启用') + '</span></div>';
+        grid.appendChild(card);
+      });
+      list.appendChild(grid);
+    }
+
+    // Skills 专用渲染：添加卡片（首位）+ 技能卡片（带过渡动画）
+    function renderSkills(data) {
+      var list = document.getElementById('generic-list');
+      list.innerHTML = '';
+      var grid = document.createElement('div');
+      grid.className = 'card-grid';
+      // 第一个：添加技能卡片
+      var addCard = document.createElement('button');
+      addCard.type = 'button';
+      addCard.className = 'add-card';
+      addCard.innerHTML =
+        '<span class="ac-plus">＋</span>' +
+        '<span class="ac-label">导入技能</span>' +
+        '<span class="ac-hint">选择含 SKILL.md 的文件夹</span>';
+      addCard.addEventListener('click', doSkillInstall);
+      grid.appendChild(addCard);
+      // 技能卡片
+      (data || []).forEach(function (item) {
+        var card = document.createElement('div');
+        card.className = 'card in';
+        var name = item.name || item.id || '';
+        var detail = item.detail || '';
+        card.innerHTML =
+          '<div class="card-name" title="' + name + '">' + name + '</div>' +
+          '<div class="card-meta" title="' + detail + '">' + (detail || '—') + '</div>' +
+          '<div class="card-footer"><span class="badge third">技能</span>' +
+            '<button class="btn danger">卸载</button></div>';
+        card.querySelector('.btn.danger').addEventListener('click', async function () {
+          var ok = await showConfirm('卸载技能', '确定卸载技能「' + name + '」？\n\n将删除 ' + name + ' 的技能文件。', '卸载');
+          if (!ok) return;
+          if (await nav.skillUninstall(name)) {
+            // 先播放消失动画，动画结束后移除
+            card.classList.remove('in');
+            card.classList.add('out');
+            setTimeout(function () { card.remove(); }, 260);
+            showToast('技能已卸载');
+          } else {
+            showToast('卸载失败');
+          }
+        });
+        grid.appendChild(card);
+      });
+      list.appendChild(grid);
+    }
+
+    // 高亮指定技能卡片（安装后反馈）
+    function highlightSkill(name) {
+      var cards = document.querySelectorAll('#generic-list .card');
+      cards.forEach(function (c) {
+        var n = c.querySelector('.card-name');
+        if (n && n.textContent === name) {
+          c.classList.add('highlight');
+          setTimeout(function () { c.classList.remove('highlight'); }, 1800);
+        }
+      });
+    }
+
+    // 安装技能：选择文件夹导入（即时生效；成功靠卡片高亮反馈，取消静默）
+    async function doSkillInstall() {
+      var r = await nav.skillInstall();
+      if (r && r.ok) {
+        var data = await nav.getData();
+        renderSkills(data || []);
+        highlightSkill(r.name); // 新卡片高亮反馈
+      } else if (r && r.message && r.message !== '已取消') {
+        showToast(r.message); // 仅失败时提示原因（取消静默）
+      }
+    }
 
     async function init() {
       var page = new URLSearchParams(location.search).get('page') || 'plugins';
@@ -356,14 +490,20 @@
       document.getElementById('subtitle').textContent = meta.sub;
       if (!nav) { document.getElementById('list').innerHTML = '<div class="empty">桥接不可用</div>'; return; }
       var isPlugins = page === 'plugins';
+      var isSkills = page === 'skills';
       document.getElementById('plugins-area').style.display = isPlugins ? '' : 'none';
       document.getElementById('generic-list').style.display = isPlugins ? 'none' : '';
+      document.getElementById('plugin-toolbar').style.display = isPlugins ? '' : 'none';
+      document.getElementById('skill-toolbar').style.display = isSkills ? '' : 'none';
       if (isPlugins) {
         var data = await nav.getData();
         renderPlugins(data || []);
+      } else if (isSkills) {
+        var data2 = await nav.getData();
+        renderSkills(data2);
       } else {
-        var list = document.getElementById('generic-list');
-        list.innerHTML = '<div class="empty">功能开发中</div>';
+        var data3 = await nav.getData();
+        renderGenericCards(data3, PAGE_EMPTY[page]);
       }
     }
     init();
