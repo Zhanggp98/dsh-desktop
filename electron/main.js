@@ -888,6 +888,33 @@ function autoCheckUpdate() {
   }, 4_000);
 }
 
+// 从 Harness iframe 读取 dsh-bg 壁纸变量，同步给壳窗口（导航栏/标题栏毛玻璃透出背景）
+function syncWallpaper() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  try {
+    const frames = mainWindow.webContents.mainFrame.frames;
+    for (const f of frames) {
+      if (f.url && f.url.indexOf('localhost:' + PORT) !== -1) {
+        f.executeJavaScript(
+          "JSON.stringify({img:getComputedStyle(document.body).getPropertyValue('--dsh-bg-image')||'',fill:getComputedStyle(document.body).getPropertyValue('--dsh-bg-fill')||''})"
+        )
+          .then((r) => {
+            try {
+              const obj = JSON.parse(r);
+              if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('dsh:wallpaper', obj);
+              }
+            } catch { /* 忽略 */ }
+          })
+          .catch(() => {});
+        return;
+      }
+    }
+  } catch { /* 帧不可用 */ }
+}
+// 定期同步壁纸（dsh-bg 插件设置背景时，壳窗口跟随）
+setInterval(syncWallpaper, 2_000);
+
 // 安装第三方插件：直接用 fetch 从 registry 下载 tarball → tar 解压到 profiles/node_modules
 // （不依赖 npm 命令，兼容打包后内置 node 无 npm 的情况；也不触发 npm prune，安全）
 async function installPlugin(name) {

@@ -25,6 +25,9 @@ contextBridge.exposeInMainWorld('dshNav', {
   onUpdateResult: (cb) => {
     ipcRenderer.on('dsh:update-result', (e, result) => cb(result));
   },
+  onWallpaper: (cb) => {
+    ipcRenderer.on('dsh:wallpaper', (e, w) => cb(w));
+  },
   onTheme: (cb) => {
     ipcRenderer.on('dsh:theme', (e, theme) => cb(theme));
   },
