@@ -14,6 +14,15 @@ contextBridge.exposeInMainWorld('dshWin', {
   close: () => ipcRenderer.send('dsh:win-control', 'close'),
 });
 
+// 关闭窗口选择（主进程 → 渲染进程请求选择；渲染进程 → 主进程回传结果）
+const closeChoiceBridge = {
+  onCloseChoice: (cb) => {
+    ipcRenderer.on('dsh:close-choice', (e, payload) => cb(payload));
+  },
+  respond: (choice, remember) => ipcRenderer.send('dsh:close-choice-respond', { choice, remember }),
+};
+contextBridge.exposeInMainWorld('dshCloseChoice', closeChoiceBridge);
+
 contextBridge.exposeInMainWorld('dshNav', {
   select: (page) => ipcRenderer.send('dsh:nav-select', page),
   getHarnessUrl: () => ipcRenderer.invoke('dsh:get-harness-url'),

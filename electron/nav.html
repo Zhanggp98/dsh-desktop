@@ -144,6 +144,37 @@
     white-space: nowrap;
   }
   #update-banner.show { display: block; }
+
+  /* ===== 关闭选择框（应用内统一风格） ===== */
+  #close-choice-overlay {
+    position: fixed; inset: 0; z-index: 20000;
+    background: rgba(10, 16, 30, 0.55);
+    display: none; align-items: center; justify-content: center;
+    backdrop-filter: blur(4px);
+  }
+  #close-choice-overlay.show { display: flex; }
+  #close-choice {
+    width: 380px; max-width: 92%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 22px 24px 18px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+    animation: cc-in .18s ease;
+  }
+  @keyframes cc-in { from { opacity: 0; transform: scale(0.96) translateY(6px); } to { opacity: 1; transform: none; } }
+  #close-choice .cc-title { font-size: 15px; font-weight: 600; margin-bottom: 14px; }
+  .cc-check {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 2px; cursor: pointer; user-select: none;
+    font-size: 13px; color: var(--text);
+  }
+  .cc-check input { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; margin: 0; flex: none; }
+  .cc-check .cc-d { font-size: 12px; color: var(--text-dim); margin-left: 2px; }
+  .cc-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+  .cc-actions .btn { font-size: 13px; padding: 7px 20px; }
+  .cc-actions .btn.primary { border-color: var(--accent); color: var(--accent); }
+  .cc-actions .btn.primary:hover { background: var(--accent); color: #fff; }
 </style>
 </head>
 <body>
@@ -152,6 +183,23 @@
     <div class="ov-text" id="overlay-text">正在重启服务…</div>
   </div>
   <div id="update-banner"></div>
+  <div id="close-choice-overlay">
+    <div id="close-choice">
+      <div class="cc-title">关闭 DeepSeek Harness？</div>
+      <label class="cc-check">
+        <input type="checkbox" id="cc-opt-window" />
+        <span>关闭窗口<span class="cc-d">退出客户端程序</span></span>
+      </label>
+      <label class="cc-check">
+        <input type="checkbox" id="cc-opt-service" />
+        <span>关闭服务<span class="cc-d">同时停止 DSH 后台服务</span></span>
+      </label>
+      <div class="cc-actions">
+        <button class="btn" id="cc-cancel">取消</button>
+        <button class="btn primary" id="cc-confirm">退出</button>
+      </div>
+    </div>
+  </div>
   <div id="titlebar">
     <img class="logo" src="../build/icon.png" alt="" />
     <span class="app-title">DeepSeek Harness</span>
@@ -195,6 +243,29 @@
     document.getElementById('btn-min').addEventListener('click', () => window.dshWin.minimize());
     document.getElementById('btn-max').addEventListener('click', () => window.dshWin.toggleMaximize());
     document.getElementById('btn-close').addEventListener('click', () => window.dshWin.close());
+
+    // 关闭选择框：主进程请求时弹出，勾选选项 + 退出/取消
+    const ccOverlay = document.getElementById('close-choice-overlay');
+    const ccWindow = document.getElementById('cc-opt-window');
+    const ccService = document.getElementById('cc-opt-service');
+    document.getElementById('cc-cancel').addEventListener('click', () => {
+      ccOverlay.classList.remove('show');
+    });
+    document.getElementById('cc-confirm').addEventListener('click', () => {
+      ccOverlay.classList.remove('show');
+      var choice = 'tray';
+      if (ccWindow.checked && ccService.checked) choice = 'quit-stop';
+      else if (ccWindow.checked) choice = 'quit';
+      else if (ccService.checked) choice = 'stop-only';
+      window.dshCloseChoice.respond(choice, false);
+    });
+    if (window.dshCloseChoice && window.dshCloseChoice.onCloseChoice) {
+      window.dshCloseChoice.onCloseChoice(() => {
+        ccWindow.checked = false;
+        ccService.checked = false;
+        ccOverlay.classList.add('show');
+      });
+    }
 
     // 内容区 iframe 目标（本地管理页 or DSH 地址）
     const PAGES = {

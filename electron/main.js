@@ -358,17 +358,11 @@ function createWindow() {
   // 壳页面加载完成后立即推送初始主题（避免首次启动不随主题）
   mainWindow.webContents.on('did-finish-load', () => applySplashTheme());
 
-  // 关闭按钮 = 最小化到托盘（任务继续在后台跑）
+  // 关闭按钮：弹出应用内选择框（勾选 关闭窗口/关闭服务）
   mainWindow.on('close', (e) => {
     if (!isQuitting) {
       e.preventDefault();
-      mainWindow.hide();
-      if (tray && typeof tray.displayBalloon === 'function') {
-        tray.displayBalloon({
-          title: 'DeepSeek Harness',
-          content: '已最小化到托盘，任务仍在后台运行。右键托盘图标可退出。',
-        });
-      }
+      mainWindow.webContents.send('dsh:close-choice', {});
     }
   });
 
@@ -687,6 +681,41 @@ ipcMain.on('dsh:win-control', (event, action) => {
     if (win.isMaximized()) win.unmaximize();
     else win.maximize();
   } else if (action === 'close') win.close();
+});
+
+// 执行关闭选择：'tray' / 'quit' / 'stop-only' / 'quit-stop'
+function executeCloseChoice(choice) {
+  if (!mainWindow) return;
+  if (choice === 'tray') {
+    mainWindow.hide();
+    if (tray && typeof tray.displayBalloon === 'function') {
+      tray.displayBalloon({
+        title: 'DeepSeek Harness',
+        content: '已最小化到托盘，任务仍在后台运行。右键托盘图标可退出。',
+      });
+    }
+  } else if (choice === 'quit-stop') {
+    quitWithServiceStop();
+  } else if (choice === 'quit') {
+    isQuitting = true;
+    app.quit();
+  } else if (choice === 'stop-only') {
+    // 只停服务：杀掉占用端口的进程，窗口保留
+    try {
+      if (dshProcess && !dshProcess.killed) {
+        try { dshProcess.kill(); } catch { /* already gone */ }
+      }
+      killPortProcess(PORT);
+    } catch { /* 忽略 */ }
+  }
+  // 其他：不做事
+}
+
+// 关闭选择框回执：{ choice, remember } —— remember 保留兼容（不再使用）
+ipcMain.on('dsh:close-choice-respond', (event, payload) => {
+  if (!mainWindow) return;
+  const choice = payload && payload.choice;
+  executeCloseChoice(choice);
 });
 
 // 导航切换（壳页面 preload 转发）
