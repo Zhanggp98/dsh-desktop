@@ -91,6 +91,20 @@
   .btn.danger { border-color: var(--danger); color: var(--danger); }
   .btn.danger:hover { background: var(--danger); color: #fff; }
 
+  /* MCP 表单模态框 */
+  .form-modal { width: 420px; max-width: 94%; }
+  .form-field { margin-bottom: 12px; }
+  .form-field label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; }
+  .form-field input, .form-field select {
+    width: 100%; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--card); color: var(--text); font: inherit; font-size: 13px; outline: none;
+  }
+  .form-field input:focus, .form-field select:focus { border-color: var(--accent); }
+  .form-field .hint { font-size: 11px; color: var(--text-dim); margin-top: 3px; }
+  .form-radio { display: flex; gap: 16px; margin-top: 4px; }
+  .form-radio label { display: flex; align-items: center; gap: 5px; font-size: 13px; color: var(--text); cursor: pointer; margin: 0; }
+  .form-radio input { width: auto; }
+
   /* 添加技能卡片（列表首位） */
   .add-card {
     width: 280px; height: 170px;
@@ -172,6 +186,46 @@
       <div class="modal-actions">
         <button class="btn" id="modal-cancel">取消</button>
         <button class="btn danger" id="modal-ok">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MCP 表单模态框（添加/编辑服务器） -->
+  <div class="modal-overlay" id="mcp-form-overlay">
+    <div class="modal form-modal">
+      <div class="modal-title" id="mcp-form-title">添加 MCP 服务器</div>
+      <div class="form-field">
+        <label>服务器名称（serverName，工具命名空间，如 github）</label>
+        <input id="mcp-f-server" placeholder="github" autocomplete="off" />
+      </div>
+      <div class="form-field">
+        <label>传输方式</label>
+        <div class="form-radio">
+          <label><input type="radio" name="mcp-transport" value="stdio" checked /> stdio（本地命令）</label>
+          <label><input type="radio" name="mcp-transport" value="streamable-http" /> HTTP（远程 URL）</label>
+        </div>
+      </div>
+      <div class="form-field" id="mcp-f-stdio">
+        <label>命令（command）</label>
+        <input id="mcp-f-command" placeholder="如 npx 或 C:\path\to\server.exe" autocomplete="off" />
+        <div class="hint">要 spawn 的可执行文件</div>
+      </div>
+      <div class="form-field" id="mcp-f-args">
+        <label>参数（args，空格或逗号分隔）</label>
+        <input id="mcp-f-args" placeholder="-y @modelcontextprotocol/server-github" autocomplete="off" />
+        <div class="hint">传给命令的参数</div>
+      </div>
+      <div class="form-field" id="mcp-f-url" style="display:none">
+        <label>服务器 URL</label>
+        <input id="mcp-f-url" placeholder="http://localhost:3000/mcp" autocomplete="off" />
+      </div>
+      <div class="form-field" id="mcp-f-headers" style="display:none">
+        <label>请求头（headers，JSON，可选）</label>
+        <input id="mcp-f-headers" placeholder='{"Authorization": "Bearer ..."}' autocomplete="off" />
+      </div>
+      <div class="modal-actions">
+        <button class="btn" id="mcp-form-cancel">取消</button>
+        <button class="btn primary" id="mcp-form-ok">保存</button>
       </div>
     </div>
   </div>
@@ -322,10 +376,13 @@
       }
     }
 
-    // 刷新
+    // 刷新（按当前页面重渲染）
+    var currentPage = new URLSearchParams(location.search).get('page') || 'plugins';
     document.getElementById('refresh-btn').addEventListener('click', async () => {
       var data = await nav.getData();
-      renderPlugins(data || []);
+      if (currentPage === 'plugins') renderPlugins(data || []);
+      else if (currentPage === 'skills') renderSkills(data || []);
+      else renderMcp(data || []);
     });
 
     // 高亮指定插件卡片（安装后反馈）
@@ -413,6 +470,147 @@
       });
       list.appendChild(grid);
     }
+
+    // MCP 专用渲染：添加卡片（首位）+ 服务器卡片（transport 徽标 + 编辑/删除）
+    function renderMcp(data) {
+      var list = document.getElementById('generic-list');
+      list.innerHTML = '';
+      var grid = document.createElement('div');
+      grid.className = 'card-grid';
+      // 第一个：添加 MCP 卡片
+      var addCard = document.createElement('button');
+      addCard.type = 'button';
+      addCard.className = 'add-card';
+      addCard.innerHTML =
+        '<span class="ac-plus">＋</span>' +
+        '<span class="ac-label">添加 MCP 服务器</span>' +
+        '<span class="ac-hint">stdio 或 HTTP 传输</span>';
+      addCard.addEventListener('click', function () { openMcpForm(null); });
+      grid.appendChild(addCard);
+      // MCP 服务器卡片
+      (data || []).forEach(function (item) {
+        var card = document.createElement('div');
+        card.className = 'card in';
+        var name = item.name || item.id || '';
+        var detail = item.detail || '';
+        var isStdio = item.transport !== 'streamable-http';
+        var badgeCls = isStdio ? 'third' : 'core';
+        var badgeText = isStdio ? 'stdio' : 'HTTP';
+        card.innerHTML =
+          '<div class="card-name" title="' + name + '">' + name + '</div>' +
+          '<div class="card-meta" title="' + detail + '">' + (detail || '—') + '</div>' +
+          '<div class="card-footer">' +
+            '<span class="badge ' + badgeCls + '">' + badgeText + '</span>' +
+            '<span style="display:flex;gap:6px">' +
+              '<button class="btn">编辑</button>' +
+              '<button class="btn danger">删除</button>' +
+            '</span>' +
+          '</div>';
+        card.querySelectorAll('button')[0].addEventListener('click', function () { openMcpForm(item); });
+        card.querySelectorAll('button')[1].addEventListener('click', async function () {
+          var ok = await showConfirm('删除 MCP 服务器', '确定删除「' + name + '」？\n\n删除后将重启服务以生效。', '删除');
+          if (!ok) return;
+          var pd = window.parent.document;
+          var ov = pd.getElementById('overlay');
+          var ovt = pd.getElementById('overlay-text');
+          if (ov) ov.classList.add('show');
+          if (ovt) ovt.textContent = '正在删除并重启服务…';
+          var r = await nav.mcpRemove(item.id);
+          if (r && r.ok) {
+            card.classList.remove('in');
+            card.classList.add('out');
+            setTimeout(function () { card.remove(); }, 260);
+            var rs = await nav.restartService();
+            if (ov) {
+              if (rs === true) {
+                if (ovt) ovt.textContent = '服务已重启';
+                setTimeout(function () { ov.classList.remove('show'); }, 600);
+                showToast('MCP 服务器已删除');
+              } else {
+                if (ovt) ovt.textContent = '重启失败: ' + (rs || '未知错误');
+                setTimeout(function () { ov.classList.remove('show'); }, 2000);
+              }
+            }
+          } else {
+            if (ov) ov.classList.remove('show');
+            showToast((r && r.message) || '删除失败');
+          }
+        });
+        grid.appendChild(card);
+      });
+      list.appendChild(grid);
+    }
+
+    // MCP 表单：编辑时传 item（含 id/name/transport/command/args/url/headers），新增传 null
+    function openMcpForm(item) {
+      document.getElementById('mcp-form-title').textContent = item ? '编辑 MCP 服务器' : '添加 MCP 服务器';
+      document.getElementById('mcp-f-server').value = item ? (item.name || '') : '';
+      var isStdio = !item || item.transport !== 'streamable-http';
+      var radios = document.querySelectorAll('input[name="mcp-transport"]');
+      radios.forEach(function (r) { r.checked = (r.value === (isStdio ? 'stdio' : 'streamable-http')); });
+      document.getElementById('mcp-f-command').value = item ? (item.command || '') : '';
+      document.getElementById('mcp-f-args').value = item ? (item.args || []).join(' ') : '';
+      document.getElementById('mcp-f-url').value = item ? (item.url || '') : '';
+      document.getElementById('mcp-f-headers').value = item ? (item.headers || '') : '';
+      syncMcpTransport();
+      document.getElementById('mcp-form-overlay').classList.add('show');
+      document.getElementById('mcp-f-server').focus();
+      mcpFormEditId = item ? item.id : '';
+    }
+    var mcpFormEditId = '';
+
+    function syncMcpTransport() {
+      var stdio = document.querySelector('input[name="mcp-transport"]:checked').value === 'stdio';
+      document.getElementById('mcp-f-stdio').style.display = stdio ? '' : 'none';
+      document.getElementById('mcp-f-args').style.display = stdio ? '' : 'none';
+      document.getElementById('mcp-f-url').style.display = stdio ? 'none' : '';
+      document.getElementById('mcp-f-headers').style.display = stdio ? 'none' : '';
+    }
+    document.querySelectorAll('input[name="mcp-transport"]').forEach(function (r) {
+      r.addEventListener('change', syncMcpTransport);
+    });
+    document.getElementById('mcp-form-cancel').addEventListener('click', function () {
+      document.getElementById('mcp-form-overlay').classList.remove('show');
+    });
+    document.getElementById('mcp-form-ok').addEventListener('click', async function () {
+      var serverName = document.getElementById('mcp-f-server').value.trim();
+      var isStdio = document.querySelector('input[name="mcp-transport"]:checked').value === 'stdio';
+      var entry = {
+        id: mcpFormEditId,
+        serverName: serverName,
+        transport: isStdio ? 'stdio' : 'streamable-http',
+        command: document.getElementById('mcp-f-command').value.trim(),
+        args: document.getElementById('mcp-f-args').value,
+        url: document.getElementById('mcp-f-url').value.trim(),
+        headers: document.getElementById('mcp-f-headers').value.trim(),
+        isEdit: !!mcpFormEditId,
+      };
+      var pd = window.parent.document;
+      var ov = pd.getElementById('overlay');
+      var ovt = pd.getElementById('overlay-text');
+      if (ov) ov.classList.add('show');
+      if (ovt) ovt.textContent = '正在保存并重启服务…';
+      var r = await nav.mcpSave(entry);
+      if (r && r.ok) {
+        document.getElementById('mcp-form-overlay').classList.remove('show');
+        var data = await nav.getData();
+        renderMcp(data || []);
+        var rs = await nav.restartService();
+        if (ov) {
+          if (rs === true) {
+            if (ovt) ovt.textContent = '服务已重启';
+            setTimeout(function () { ov.classList.remove('show'); }, 600);
+            showToast('MCP 服务器已保存');
+          } else {
+            if (ovt) ovt.textContent = '重启失败: ' + (rs || '未知错误');
+            setTimeout(function () { ov.classList.remove('show'); }, 2000);
+          }
+        }
+      } else {
+        if (ov) ov.classList.remove('show');
+        showToast((r && r.message) || '保存失败');
+      }
+    });
 
     // Skills 专用渲染：添加卡片（首位）+ 技能卡片（带过渡动画）
     function renderSkills(data) {
@@ -504,7 +702,7 @@
         renderSkills(data2);
       } else {
         var data3 = await nav.getData();
-        renderGenericCards(data3, PAGE_EMPTY[page]);
+        renderMcp(data3 || []);
       }
     }
     init();

@@ -22,6 +22,8 @@ contextBridge.exposeInMainWorld('dshNav', {
   pluginInstall: (name) => ipcRenderer.invoke('dsh:plugin-install', name),
   skillInstall: () => ipcRenderer.invoke('dsh:skill-install'),
   skillUninstall: (path) => ipcRenderer.invoke('dsh:skill-uninstall', path),
+  mcpSave: (entry) => ipcRenderer.invoke('dsh:mcp-save', entry),
+  mcpRemove: (id) => ipcRenderer.invoke('dsh:mcp-remove', id),
   restartService: () => ipcRenderer.invoke('dsh:restart-service'),
   checkUpdate: () => ipcRenderer.invoke('dsh:check-update'),
   onUpdateResult: (cb) => {

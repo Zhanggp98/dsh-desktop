@@ -780,22 +780,204 @@ function removePlugin(id) {
   return true;
 }
 
-// MCP 服务器：从 DSH settings.yaml 读取 mcp 段（若配置了）
+// ---------------------------------------------------------------------------
+// MCP 服务器：读写 profiles/web/cordis.patch.yml（DSH 标准 MCP 配置位置）
+// 每个 MCP 服务器是一个 @deepseek-ai/dsh-mcp-client 插件实例
+// ---------------------------------------------------------------------------
+const MCP_CLIENT_BUNDLE = '@deepseek-ai/dsh-mcp-client';
+
+function mcpPatchPath() {
+  return path.join(dshHomeDir(), 'profiles', 'web', 'cordis.patch.yml');
+}
+
+// 解析 cordis.patch.yml（YAML 数组），返回 { entries, mcp } —— mcp 为 MCP 实例数组
+function parsePatchFile(text) {
+  const entries = [];
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  let cur = null; // 当前顶层条目 { raw: [lines], id, name, indent }
+  const flush = () => {
+    if (cur && cur.raw.length > 0) {
+      // 判定是否 MCP 条目：name 字段 == MCP_CLIENT_BUNDLE
+      const nameMatch = cur.raw.find((l) => /^\s{2}name:\s*/.test(l));
+      const name = nameMatch ? nameMatch.replace(/^\s{2}name:\s*/, '').trim().replace(/^['"]|['"]$/g, '') : '';
+      const idMatch = cur.raw.find((l) => /^-\s+id:\s*/.test(l));
+      const id = idMatch ? idMatch.replace(/^-\s+id:\s*/, '').trim().replace(/^['"]|['"]$/g, '') : '';
+      cur.id = id;
+      cur.name = name;
+      entries.push(cur);
+    }
+    cur = null;
+  };
+  for (const line of lines) {
+    if (/^\s*$/.test(line) || /^\s*#/.test(line)) {
+      if (cur) cur.raw.push(line);
+      continue;
+    }
+    if (/^-\s/.test(line) || /^-\s*$/.test(line)) {
+      flush();
+      cur = { raw: [line] };
+    } else if (cur) {
+      cur.raw.push(line);
+    }
+    // 顶层非条目行（如注释前的 []）忽略
+  }
+  flush();
+  return entries;
+}
+
 function listMcpServers() {
   const out = [];
   try {
-    const text = fs.readFileSync(path.join(dshHomeDir(), 'settings.yaml'), 'utf8');
-    const m = text.match(/mcp:\s*\n([\s\S]*?)(?:\n\S[^:]*:|\s*$)/);
-    if (m) {
-      const re = /^\s{2}([\w-]+):/gm;
-      let mm;
-      while ((mm = re.exec(m[1])) !== null) {
-        out.push({ id: mm[1], name: mm[1], detail: 'MCP 服务器', enabled: true });
+    const p = mcpPatchPath();
+    if (!fs.existsSync(p)) return out;
+    const entries = parsePatchFile(fs.readFileSync(p, 'utf8'));
+    for (const e of entries) {
+      if (e.name !== MCP_CLIENT_BUNDLE) continue;
+      // 解析 config
+      const raw = e.raw.join('\n');
+      const cfg = {};
+      const cfgMatch = raw.match(/^\s{2}config:\s*$/m);
+      if (cfgMatch) {
+        // 抓 config 缩进块（4 空格字段，args 子项 6 空格）
+        const lines = raw.split('\n');
+        const startIdx = lines.findIndex((l) => /^\s{2}config:\s*$/.test(l));
+        for (let i = startIdx + 1; i < lines.length; i++) {
+          const l = lines[i];
+          if (/^\s{2}\S/.test(l)) break; // 回到 config 同级（如其他顶层字段）
+          const m = l.match(/^\s{4}([\w-]+):\s*(.*)$/);
+          if (m) {
+            let v = m[2].trim();
+            if (v.startsWith('[') || v === '') {
+              // 数组或空 → 收集子行
+              const arr = [];
+              let j = i + 1;
+              while (j < lines.length && /^\s{6}-\s/.test(lines[j])) {
+                arr.push(lines[j].replace(/^\s{6}-\s*/, '').replace(/^['"]|['"]$/g, ''));
+                j++;
+              }
+              cfg[m[1]] = v.startsWith('[') ? v.replace(/^\[|\]$/g, '').split(',').map((s) => s.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean) : arr;
+              i = j - 1;
+            } else {
+              cfg[m[1]] = v.replace(/^['"]|['"]$/g, '');
+            }
+          }
+        }
       }
+      const serverName = cfg.serverName || e.id || '';
+      const transport = cfg.transport || 'stdio';
+      let detail = '';
+      if (transport === 'stdio') {
+        detail = [cfg.command, (cfg.args || []).join(' ')].filter(Boolean).join(' ');
+      } else {
+        detail = cfg.url || '';
+      }
+      out.push({
+        id: e.id,
+        name: serverName,
+        detail,
+        transport,
+        command: cfg.command || '',
+        args: cfg.args || [],
+        url: cfg.url || '',
+        headers: cfg.headers || '',
+        enabled: true,
+        tag: transport === 'stdio' ? 'stdio' : 'HTTP',
+      });
     }
   } catch { /* 无配置 */ }
   return out;
 }
+
+// 保存（新增或编辑）MCP 服务器；返回 { ok, message }
+function saveMcpServer(entry) {
+  try {
+    const p = mcpPatchPath();
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    const text = fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : '[]\n';
+    const entries = parsePatchFile(text);
+    const serverName = (entry.serverName || '').trim();
+    if (!serverName) return { ok: false, message: 'serverName 不能为空' };
+    const transport = entry.transport === 'streamable-http' ? 'streamable-http' : 'stdio';
+    if (transport === 'stdio' && !(entry.command || '').trim()) {
+      return { ok: false, message: 'stdio 传输需要 command' };
+    }
+    if (transport === 'streamable-http' && !(entry.url || '').trim()) {
+      return { ok: false, message: 'HTTP 传输需要 url' };
+    }
+    // 生成新条目文本
+    let id = (entry.id || '').trim();
+    if (id && entries.some((e) => e.name === MCP_CLIENT_BUNDLE && e.id === id && !entry.isEdit)) {
+      return { ok: false, message: 'id 已存在: ' + id };
+    }
+    if (!id) id = 'mcp-' + serverName.replace(/[^A-Za-z0-9_-]/g, '-').toLowerCase();
+    const lines = ['- id: ' + id, "  name: '" + MCP_CLIENT_BUNDLE + "'", '  config:'];
+    lines.push('    serverName: ' + serverName);
+    lines.push('    transport: ' + transport);
+    if (transport === 'stdio') {
+      const cmd = (entry.command || '').trim();
+      const cmdQuote = /^[A-Za-z0-9_./\\:-]+$/.test(cmd) ? '' : "'";
+      lines.push('    command: ' + cmdQuote + cmd + cmdQuote);
+      const args = (Array.isArray(entry.args) ? entry.args : String(entry.args || '').split(/[,\s]+/)).map((s) => String(s).trim()).filter(Boolean);
+      if (args.length > 0) {
+        lines.push('    args:');
+        for (const a of args) {
+          const q = /^[A-Za-z0-9_./\\:-]+$/.test(a) ? '' : "'";
+          lines.push('      - ' + q + a + q);
+        }
+      }
+    } else {
+      lines.push('    url: ' + (entry.url || '').trim());
+      const hdr = (entry.headers || '').trim();
+      if (hdr) lines.push('    headers: ' + hdr);
+    }
+    const newRaw = lines.join('\n');
+    // 重建文件：非 MCP 条目原样保留；被编辑的 MCP 条目替换；新增追加
+    const out = [];
+    let replaced = false;
+    for (const e of entries) {
+      if (e.name === MCP_CLIENT_BUNDLE && (entry.isEdit ? e.id === id : e.id === id)) {
+        out.push(newRaw);
+        replaced = true;
+      } else {
+        out.push(e.raw.join('\n'));
+      }
+    }
+    if (!replaced) out.push(newRaw);
+    const header = '# Your patch layer for this dsh profile, applied after every bundle layer:\n' +
+      '# a top-level YAML array of loader patch entries (id-targeted config\n' +
+      '# overrides, disables, and insert lists; `!!js` expressions allowed).\n';
+    fs.writeFileSync(p, header + out.join('\n') + '\n', 'utf8');
+    return { ok: true, id };
+  } catch (e) {
+    return { ok: false, message: e.message || '保存失败' };
+  }
+}
+
+// 删除 MCP 服务器；返回 { ok, message }
+function removeMcpServer(id) {
+  try {
+    const p = mcpPatchPath();
+    if (!fs.existsSync(p)) return { ok: false, message: '配置文件不存在' };
+    const entries = parsePatchFile(fs.readFileSync(p, 'utf8'));
+    const out = [];
+    let removed = false;
+    for (const e of entries) {
+      if (e.name === MCP_CLIENT_BUNDLE && e.id === id) {
+        removed = true;
+        continue;
+      }
+      out.push(e.raw.join('\n'));
+    }
+    if (!removed) return { ok: false, message: '未找到该 MCP 服务器' };
+    fs.writeFileSync(p, out.join('\n') + '\n', 'utf8');
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, message: e.message || '删除失败' };
+  }
+}
+
+ipcMain.handle('dsh:mcp-save', async (event, entry) => saveMcpServer(entry));
+ipcMain.handle('dsh:mcp-remove', async (event, id) => removeMcpServer(id));
 
 // Skills：按 DSH 标准位置扫描（用户级 + DSH home + 工作区标准子目录），读取名称与描述
 function listSkills() {
