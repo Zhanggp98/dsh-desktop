@@ -444,14 +444,15 @@
         card.querySelector('.btn.danger').addEventListener('click', async function () {
           var ok = await showConfirm('卸载技能', '确定卸载技能「' + name + '」？\n\n将删除 ' + name + ' 的技能文件。', '卸载');
           if (!ok) return;
-          if (await nav.skillUninstall(name)) {
+          var r = await nav.skillUninstall(item.path);
+          if (r && r.ok) {
             // 先播放消失动画，动画结束后移除
             card.classList.remove('in');
             card.classList.add('out');
             setTimeout(function () { card.remove(); }, 260);
             showToast('技能已卸载');
           } else {
-            showToast('卸载失败');
+            showToast((r && r.message) || '卸载失败');
           }
         });
         grid.appendChild(card);

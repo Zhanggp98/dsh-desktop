@@ -797,19 +797,23 @@ function listMcpServers() {
   return out;
 }
 
-// Skills：读工作区/用户 skills 目录（SKILL.md 标记）
-// Skills：扫描常见技能目录（SKILL.md 标记），读取名称与描述
+// Skills：按 DSH 标准位置扫描（用户级 + DSH home + 工作区标准子目录），读取名称与描述
 function listSkills() {
   const out = [];
   const seen = new Set();
   const roots = [
     path.join(os.homedir(), '.agents', 'skills'), // 用户级（~/.agents/skills）
     path.join(dshHomeDir(), 'skills'), // ~/.dsh/skills
-    path.join(dshHomeDir(), 'workspaces'),
-    path.join(dshHomeDir(), 'workspace'),
-    process.cwd(),
-    process.env.DSH_WORKSPACE || '',
-  ].filter(Boolean);
+    // 工作区项目级（仅标准子目录约定，不直接扫工作区根）
+    path.join(process.cwd(), '.dsh', 'skills'),
+    path.join(process.cwd(), '.agents', 'skills'),
+  ];
+  if (process.env.DSH_WORKSPACE) {
+    roots.push(
+      path.join(process.env.DSH_WORKSPACE, '.dsh', 'skills'),
+      path.join(process.env.DSH_WORKSPACE, '.agents', 'skills'),
+    );
+  }
   for (const root of roots) {
     try {
       const entries = fs.readdirSync(root, { withFileTypes: true });
@@ -822,7 +826,7 @@ function listSkills() {
           const { name, desc } = parseSkillMd(skillMd, e.name);
           if (seen.has(name)) continue;
           seen.add(name);
-          out.push({ id: name, name, detail: desc, tag: '目录技能' });
+          out.push({ id: name, name, detail: desc, tag: '目录技能', path: p });
         } else if (e.name.endsWith('.md') && e.name !== 'README.md') {
           // 扁平 markdown 技能：root/name.md（含 frontmatter 才视为技能）
           const content = fs.readFileSync(p, 'utf8');
@@ -833,7 +837,7 @@ function listSkills() {
           const name = meta.name || e.name.replace(/\.md$/, '');
           if (seen.has(name)) continue;
           seen.add(name);
-          out.push({ id: name, name, detail: meta.description || '', tag: '技能' });
+          out.push({ id: name, name, detail: meta.description || '', tag: '技能', path: p });
         }
       }
     } catch { /* 目录不存在 */ }
@@ -923,23 +927,49 @@ async function installSkill(event) {
   }
 }
 
-// 卸载 skill：删除用户技能目录中的技能文件夹
-function uninstallSkill(name) {
+// 卸载 skill：按列表返回的真实路径删除（仅允许删除技能扫描根目录内的路径）
+function skillScanRoots() {
+  const roots = [
+    path.join(os.homedir(), '.agents', 'skills'),
+    path.join(dshHomeDir(), 'skills'),
+    path.join(process.cwd(), '.dsh', 'skills'),
+    path.join(process.cwd(), '.agents', 'skills'),
+  ];
+  if (process.env.DSH_WORKSPACE) {
+    roots.push(
+      path.join(process.env.DSH_WORKSPACE, '.dsh', 'skills'),
+      path.join(process.env.DSH_WORKSPACE, '.agents', 'skills'),
+    );
+  }
+  return roots.map((p) => path.resolve(p));
+}
+
+function uninstallSkill(nameOrPath) {
   try {
-    const dir = path.join(userSkillRoot(), name);
-    if (!fs.existsSync(dir)) return false;
-    fs.rmSync(dir, { recursive: true, force: true });
-    return true;
-  } catch {
-    return false;
+    let target;
+    if (typeof nameOrPath === 'string' && (nameOrPath.includes(path.sep) || nameOrPath.includes('/'))) {
+      target = path.resolve(nameOrPath);
+      // 安全校验：仅允许删除技能扫描根目录内的路径
+      const roots = skillScanRoots();
+      const allowed = roots.some((root) => target === root || target.startsWith(root + path.sep));
+      if (!allowed) return { ok: false, message: '路径不在技能目录范围内，已拒绝' };
+    } else {
+      // 兼容旧调用：按用户技能根解析
+      target = path.join(path.resolve(path.join(os.homedir(), '.agents', 'skills')), nameOrPath);
+    }
+    if (!fs.existsSync(target)) return { ok: false, message: '技能目录不存在' };
+    fs.rmSync(target, { recursive: true, force: true });
+    return { ok: true, name: path.basename(target) };
+  } catch (e) {
+    return { ok: false, message: e.message || '卸载失败' };
   }
 }
 
 ipcMain.handle('dsh:skill-install', async (event) => {
   return installSkill(event);
 });
-ipcMain.handle('dsh:skill-uninstall', async (event, name) => {
-  return uninstallSkill(name);
+ipcMain.handle('dsh:skill-uninstall', async (event, nameOrPath) => {
+  return uninstallSkill(nameOrPath);
 });
 
 // 重启 dsh 服务（不退出窗口）
