@@ -1293,9 +1293,9 @@ function syncWallpaper() {
   } catch { /* 帧不可用 */ }
 }
 
-// 在 Harness iframe 注入通用 body 变化监听（MutationObserver）：
-// 监听 DSH 页面本体的 style / data-dsh-bg 属性变化，变化时通知壳窗口立即同步。
-// 不依赖任何具体插件——任何修改 body 壁纸变量的机制都会触发。
+// 在 Harness iframe 注入通用 DOM 变化监听（MutationObserver）：
+// 同时监听 documentElement（外观切换 colorScheme/data-theme）与 body（壁纸变量/主题 token），
+// 任何相关属性变化都立即通知壳窗口同步。不依赖任何具体插件。
 function ensureHarnessObserver() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   try {
@@ -1308,6 +1308,13 @@ function ensureHarnessObserver() {
             try { window.parent.postMessage({ source: 'dsh-harness', type: 'body-changed' }, '*'); } catch (e) {}
           };
           const obs = new MutationObserver(notify);
+          // 外观切换（light/dark）会改 documentElement 的 colorScheme / data-theme / style
+          obs.observe(document.documentElement, {
+            attributes: true,
+            attributeFilter: ['style', 'class', 'data-theme', 'color-scheme'],
+            subtree: false,
+          });
+          // 壁纸/主题 token 变化写在 body 的 style / data-dsh-bg
           obs.observe(document.body, {
             attributes: true,
             attributeFilter: ['style', 'data-dsh-bg'],
@@ -1323,7 +1330,7 @@ function ensureHarnessObserver() {
   } catch { /* 帧不可用 */ }
 }
 
-// 事件驱动：iframe 内 body 壁纸相关属性变化 → postMessage → nav.html 转发 → 这里触发同步
+// 事件驱动：iframe 内 DOM 变化 → postMessage → nav.html 转发 → 这里触发同步
 ipcMain.on('dsh:wallpaper-changed', () => {
   syncWallpaper();
 });

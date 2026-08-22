@@ -374,6 +374,10 @@
     if (window.dshNav && window.dshNav.onTheme) {
       window.dshNav.onTheme((theme) => {
         document.documentElement.setAttribute('data-theme', theme === 'light' ? 'light' : 'dark');
+        // 外观切换立即触发一次背景重新同步（MutationObserver 也会在 iframe 侧兜底触发）
+        if (window.dshNav && window.dshNav.notifyWallpaperChanged) {
+          window.dshNav.notifyWallpaperChanged();
+        }
       });
     }
 

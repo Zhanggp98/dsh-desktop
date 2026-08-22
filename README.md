@@ -15,23 +15,18 @@ Electron 套壳封装 `dsh web`，提供 Codex 式的独立桌面窗口体验：
 - **Skills 管理**：扫描 DSH 标准技能位置（`~/.agents/skills` 等），支持文件夹导入安装 / 卸载，带过渡动画与高亮反馈
 - **主题跟随**：启动画面、标题栏、窗口按钮、管理页全部跟随 DSH 主题（浅色 / 深色 / 跟随系统）
 - **自定义标题栏**：鲸鱼图标 + 标题 + 可拖动窗口 + 毛玻璃 + 按钮随主题变色
+- **壳窗口背景跟随**：导航栏/标题栏毛玻璃实时透出 DSH 主题色或壁纸（事件驱动，零轮询，与插件解耦）
 - **关闭选择框**：点关闭时弹出勾选式选择（关闭窗口 / 关闭服务 多选组合），支持最小化到托盘 / 仅退出 / 退出并停止服务
 - **托盘常驻**：托盘菜单区分「停止服务并退出」/「退出」
 - **端口复用**：检测到 dsh web 已在运行则直接复用，否则自动拉起，避免多实例
 
 ## 📸 界面预览
 
-> 截图待补充（见下方清单）。
-
-**启动画面**（三步环境检查动画，主题跟随）：
+**加载页面**（启动画面：三步环境检查动画，主题跟随）：
 
 | 加载中 · 深色 | 加载中 · 浅色 |
 |---|---|
 | ![启动加载中-深色](screenshots/splash_loading_dark.png) | ![启动加载中-浅色](screenshots/splash_loading_light.png) |
-
-| 完成 · 深色 | 完成 · 浅色 |
-|---|---|
-| ![启动完成-深色](screenshots/splash_complete_dark.png) | ![启动完成-浅色](screenshots/splash_complete_light.png) |
 
 **主界面**（独立窗口 + 自定义标题栏 + 左侧导航栏）：
 
@@ -43,44 +38,19 @@ Electron 套壳封装 `dsh web`，提供 Codex 式的独立桌面窗口体验：
 
 | 深色主题 | 浅色主题 |
 |---|---|
-| 📷 待截图：`screenshots/plugins_dark.png` | 📷 待截图：`screenshots/plugins_light.png` |
+| ![插件管理-深色](screenshots/plugins_dark.png) | ![插件管理-浅色](screenshots/plugins_light.png) |
 
 **MCP 管理页**（卡片化 + 添加/编辑/删除）：
 
 | 深色主题 | 浅色主题 |
 |---|---|
-| 📷 待截图：`screenshots/mcp_dark.png` | 📷 待截图：`screenshots/mcp_light.png` |
+| ![MCP管理-深色](screenshots/mcp_dark.png) | ![MCP管理-浅色](screenshots/mcp_light.png) |
 
 **Skills 管理页**（技能卡片 + 导入入口）：
 
 | 深色主题 | 浅色主题 |
 |---|---|
-| 📷 待截图：`screenshots/skills_dark.png` | 📷 待截图：`screenshots/skills_light.png` |
-
-**关闭选择框**（勾选式，跟随主题）：
-
-| 深色主题 | 浅色主题 |
-|---|---|
-| 📷 待截图：`screenshots/close_dialog_dark.png` | 📷 待截图：`screenshots/close_dialog_light.png` |
-
-## 📷 截图任务清单
-
-按顺序截好后放入 `screenshots/` 目录，README 里的引用即自动生效：
-
-| # | 文件 | 内容 |
-|---|---|---|
-| 1 | `main_dark.png` | 主界面，深色主题（含左侧导航栏） |
-| 2 | `main_light.png` | 主界面，浅色主题（含左侧导航栏） |
-| 3 | `plugins_dark.png` | 插件管理页，深色 |
-| 4 | `plugins_light.png` | 插件管理页，浅色 |
-| 5 | `mcp_dark.png` | MCP 管理页，深色 |
-| 6 | `mcp_light.png` | MCP 管理页，浅色 |
-| 7 | `skills_dark.png` | Skills 管理页，深色 |
-| 8 | `skills_light.png` | Skills 管理页，浅色 |
-| 9 | `close_dialog_dark.png` | 关闭选择框，深色 |
-| 10 | `close_dialog_light.png` | 关闭选择框，浅色 |
-
-> 启动画面 4 张已有，无需重截。
+| ![Skills管理-深色](screenshots/skills_dark.png) | ![Skills管理-浅色](screenshots/skills_light.png) |
 
 ## 🚀 开发运行
 
@@ -125,6 +95,7 @@ npm run dist           # 生成 NSIS 安装程序（dist/DeepSeek Harness Setup 
 - **托盘常驻**：托盘菜单提供「停止服务并退出」（无条件结束 3080 服务）/「退出」（保留服务）。
 - **MCP 配置**：读写 `~/.dsh/profiles/web/cordis.patch.yml`（DSH 标准 MCP 配置位置），每个服务器是 `@deepseek-ai/dsh-mcp-client` 插件实例。
 - **Skills 来源**：按 DSH 标准位置扫描（`~/.agents/skills`、`~/.dsh/skills`、工作区 `.dsh/skills` / `.agents/skills`），安装即复制到 `~/.agents/skills`。
+- **壳窗口背景跟随**：在 Harness iframe 注入 MutationObserver 监听 body 的 `style` / `data-dsh-bg` 属性变化，经 postMessage → IPC 立即同步——导航栏/标题栏保持默认中性半透明（浅色/深色各自定义），body 背景透出 DSH 主题色或壁纸，毛玻璃自然跟随；与具体插件解耦（只读 DSH 标准 CSS 变量）。
 - **单实例**：重复打开应用会把已有窗口拉回前台。
 
 ## 📁 目录结构
