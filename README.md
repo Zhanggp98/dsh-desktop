@@ -1,28 +1,29 @@
-# DeepSeek Harness 桌面应用
+# DeepSeek Harness 桌面客户端（壳）
 
-Electron 套壳封装 `dsh web`，提供 Codex 式的独立桌面窗口体验：左侧导航栏（Harness / 插件 / MCP / Skills 管理）、托盘常驻、单实例、进程生命周期管理，一键打包 Windows NSIS 安装程序。
+Electron 套壳封装 `dsh web`，提供 Codex 式的独立桌面窗口体验：自绘标题栏、左侧导航栏、托盘常驻、单实例、进程生命周期管理，一键打包 Windows NSIS 安装程序。
 
 > ⚠️ **平台支持**：目前仅支持 **Windows**（macOS / Linux 支持后续规划中）。
 
-## ✨ 功能特性
+## ✨ 壳的功能
 
-- **三步启动动画**：Node.js 检查 → DeepSeek Harness 检查 → 服务启动，每步状态实时打勾/打叉
+- **加载页面**：启动动画（三步环境检查：Node.js 检查 → dsh 检查 → 服务启动），每步状态实时打勾/打叉，跟随主题
 - **内置 Node.js**：安装包自带 Node（约 25MB），系统没装 Node 也能直接运行；winget 仅作兜底
 - **环境自动修复**：缺 dsh 自动通过 npx 安装，零命令行
-- **左侧导航栏**：Harness / 插件 / MCP / Skills 四个页面，悬停提示跟随鼠标位置
+- **自定义标题栏**：鲸鱼图标 + 标题 + 可拖动窗口 + 毛玻璃 + 按钮随主题变色
+- **左侧导航栏**：Harness / 插件 / MCP / Skills 页面切换，悬停提示跟随鼠标位置
 - **插件管理**：卡片化展示第三方插件，支持安装（npm registry）/ 卸载，成功靠卡片动画反馈
 - **MCP 管理**：卡片化管理 MCP 服务器（stdio / streamable-http），支持添加 / 编辑 / 删除，保存后自动重启服务生效
 - **Skills 管理**：扫描 DSH 标准技能位置（`~/.agents/skills` 等），支持文件夹导入安装 / 卸载，带过渡动画与高亮反馈
-- **主题跟随**：启动画面、标题栏、窗口按钮、管理页全部跟随 DSH 主题（浅色 / 深色 / 跟随系统）
-- **自定义标题栏**：鲸鱼图标 + 标题 + 可拖动窗口 + 毛玻璃 + 按钮随主题变色
-- **壳窗口背景跟随**：导航栏/标题栏毛玻璃实时透出 DSH 主题色或壁纸（事件驱动，零轮询，与插件解耦）
+- **壳窗口背景跟随**：导航栏/标题栏毛玻璃实时透出 DSH 主题色或壁纸（事件驱动，零轮询，与具体插件解耦）
+- **主题跟随**：加载页面、标题栏、导航栏全部跟随 DSH 主题（浅色 / 深色 / 跟随系统）
 - **关闭选择框**：点关闭时弹出勾选式选择（关闭窗口 / 关闭服务 多选组合），支持最小化到托盘 / 仅退出 / 退出并停止服务
 - **托盘常驻**：托盘菜单区分「停止服务并退出」/「退出」
 - **端口复用**：检测到 dsh web 已在运行则直接复用，否则自动拉起，避免多实例
+- **单实例**：重复打开应用会把已有窗口拉回前台
 
 ## 📸 界面预览
 
-**加载页面**（启动画面：三步环境检查动画，主题跟随）：
+**加载页面**（启动动画，主题跟随）：
 
 | 加载中 · 深色 | 加载中 · 浅色 |
 |---|---|
@@ -85,7 +86,7 @@ npm run dist           # 生成 NSIS 安装程序（dist/DeepSeek Harness Setup 
 |---|---|
 | `DSH_DESKTOP_URL` | 覆盖 GUI 地址（默认 `http://localhost:3080`） |
 | `DSH_DESKTOP_DSH_CMD` | 指定 dsh 可执行文件路径（默认自动定位：PATH → npx 缓存） |
-| `DSH_DESKTOP_HOLD_SPLASH` | 预览模式：启动画面完成后停留不进入主页面（调试用） |
+| `DSH_DESKTOP_HOLD_SPLASH` | 预览模式：加载页面完成后停留不进入主页面（调试用） |
 
 ## 🧠 设计说明
 
@@ -93,9 +94,7 @@ npm run dist           # 生成 NSIS 安装程序（dist/DeepSeek Harness Setup 
 - **端口复用**：启动时先探测 3080 并确认是 DSH 服务；已有实例则直接复用，否则后台拉起一个，避免多实例。
 - **关闭行为**：点关闭弹出勾选式选择框——都不勾 = 最小化到托盘；仅勾窗口 = 退出客户端（服务保留）；仅勾服务 = 只停服务；都勾 = 退出并停止服务。
 - **托盘常驻**：托盘菜单提供「停止服务并退出」（无条件结束 3080 服务）/「退出」（保留服务）。
-- **MCP 配置**：读写 `~/.dsh/profiles/web/cordis.patch.yml`（DSH 标准 MCP 配置位置），每个服务器是 `@deepseek-ai/dsh-mcp-client` 插件实例。
-- **Skills 来源**：按 DSH 标准位置扫描（`~/.agents/skills`、`~/.dsh/skills`、工作区 `.dsh/skills` / `.agents/skills`），安装即复制到 `~/.agents/skills`。
-- **壳窗口背景跟随**：在 Harness iframe 注入 MutationObserver 监听 body 的 `style` / `data-dsh-bg` 属性变化，经 postMessage → IPC 立即同步——导航栏/标题栏保持默认中性半透明（浅色/深色各自定义），body 背景透出 DSH 主题色或壁纸，毛玻璃自然跟随；与具体插件解耦（只读 DSH 标准 CSS 变量）。
+- **壳窗口背景跟随**：在 Harness iframe 注入 MutationObserver，监听页面 `style` / `data-dsh-bg` / `colorScheme` 等属性变化，经 postMessage → IPC 立即同步——导航栏/标题栏保持默认中性半透明（浅色/深色各自定义），body 背景透出 DSH 主题色或壁纸，毛玻璃自然跟随；与具体插件解耦（只读 DSH 标准 CSS 变量）。
 - **单实例**：重复打开应用会把已有窗口拉回前台。
 
 ## 📁 目录结构
@@ -105,8 +104,8 @@ dsh-desktop/
 ├── electron/
 │   ├── main.js        # 主进程（窗口/托盘/生命周期/服务管理/IPC）
 │   ├── preload.js     # 窗口控制桥接（标题栏按钮 + 管理页 IPC + 关闭选择）
-│   ├── splash.html    # 启动动画（三步状态机，双主题）
-│   ├── nav.html       # 左侧导航栏 + 内容 iframe 容器 + 关闭选择框
+│   ├── splash.html    # 加载页面（三步状态机，双主题）
+│   ├── nav.html       # 壳页面（标题栏 + 左侧导航栏 + 内容 iframe + 关闭选择框）
 │   └── manage.html    # 插件/MCP/Skills 管理页（卡片化 UI）
 ├── build/
 │   ├── icon.png       # 应用图标 256x256（黑鲸）
