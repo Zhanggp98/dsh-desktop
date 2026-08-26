@@ -101,7 +101,7 @@ function install(ctx) {
           throw new Error(
             '内置 DeepSeek Harness 无法使用。\n' +
             (e && e.message ? e.message : '解压失败') +
-            '\n\n可尝试重新安装，或设置 DSH_DESKTOP_DSH_CMD 指定已安装的 dsh。'
+            '\n\n可尝试重新安装本应用。'
           );
         }
       });

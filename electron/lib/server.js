@@ -144,10 +144,9 @@ function install(ctx) {
     if (nodeDir) {
       env.PATH = nodeDir + path.delimiter + (env.PATH || '');
     }
-    // 强制 npm/npx 走国内镜像源，避免官方源慢导致首次下载 dsh 卡很久
-    // （用户可通过 DSH_DESKTOP_NPM_REGISTRY 覆盖）
+    // 兜底：走 npx 下载时强制用国内镜像源（正常已内置 dsh，此分支极少触发）
     if (!env.npm_config_registry) {
-      env.npm_config_registry = process.env.DSH_DESKTOP_NPM_REGISTRY || 'https://registry.npmmirror.com';
+      env.npm_config_registry = 'https://registry.npmmirror.com';
     }
     // 持久缓存目录：首次下载后缓存保留，下次启动走缓存秒开（避免重复下载 194MB）
     // 缓存放在用户数据目录下，随安装持久化

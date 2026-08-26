@@ -98,13 +98,12 @@ npm run dist           # 生成 NSIS 安装程序（dist/DeepSeek Harness Setup 
 | 变量 | 作用 |
 |---|---|
 | `DSH_DESKTOP_URL` | 覆盖 GUI 地址（默认 `http://localhost:3080`） |
-| `DSH_DESKTOP_DSH_CMD` | 指定 dsh 可执行文件路径（默认自动定位：PATH → npx 缓存） |
 | `DSH_DESKTOP_HOLD_SPLASH` | 预览模式：加载页面完成后停留不进入主页面（调试用） |
-| `DSH_DESKTOP_NPM_REGISTRY` | 覆盖 npx 下载 dsh 的 npm 镜像源（默认 `https://registry.npmmirror.com`） |
 
 ## 🧠 设计说明
 
 - **Node 优先级**：系统已装 Node → 优先使用；系统没装 → 使用应用内置 Node（`resources/node`）。
+- **内置 dsh**：安装包内置 DeepSeek Harness 本体 + 全部依赖（`build/dsh-bundle.tar`），首次启动解压到用户数据目录即用，零下载；解压失败时明确报错（不再回退 npx 下载）。
 - **端口复用**：启动时先探测 3080 并确认是 DSH 服务；已有实例则直接复用，否则后台拉起一个，避免多实例。
 - **关闭行为**：点关闭弹出勾选式选择框——都不勾 = 最小化到托盘；仅勾窗口 = 退出客户端（服务保留）；仅勾服务 = 只停服务；都勾 = 退出并停止服务。
 - **托盘常驻**：托盘菜单提供「停止服务并退出」（无条件结束 3080 服务）/「退出」（保留服务）。

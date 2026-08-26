@@ -80,27 +80,21 @@ function install(ctx) {
 }
 
 /**
- * 定位 dsh 可执行文件（异步）：内置 → 显式变量 → PATH → npx 缓存兜底。
+ * 定位 dsh 可执行文件（异步）：内置 → PATH → npx 缓存兜底。
  * 内置 dsh 首次解压为异步，不阻塞主进程。
  * @returns {Promise<string|null>}
  */
 async function findDshCommand() {
-  // 0. 特殊值 'npx'：强制走 npx 模式（测试/兜底）
-  if (process.env.DSH_DESKTOP_DSH_CMD === 'npx') return 'npx';
-  // 0.5 内置 dsh（安装包自带，零下载，最高优先级）；解压失败会抛 DSH_BUNDLE_EXTRACT_FAILED
+  // 0. 内置 dsh（安装包自带，零下载，最高优先级）；解压失败会抛 DSH_BUNDLE_EXTRACT_FAILED
   const bundled = await ensureBundledDsh();
   if (bundled) return bundled;
-  // 1. 显式环境变量
-  if (process.env.DSH_DESKTOP_DSH_CMD && fs.existsSync(process.env.DSH_DESKTOP_DSH_CMD)) {
-    return process.env.DSH_DESKTOP_DSH_CMD;
-  }
-  // 2. PATH 中的 dsh（where.exe 定位）
+  // 1. PATH 中的 dsh（where.exe 定位）
   try {
     const out = execFileSync('where.exe', ['dsh'], { encoding: 'utf8', windowsHide: true });
     const line = out.split(/\r?\n/).map((s) => s.trim()).find(Boolean);
     if (line && fs.existsSync(line)) return line;
   } catch { /* not on PATH */ }
-  // 3. npx 缓存兜底（_npx/<hash>/node_modules/.bin/dsh.cmd）
+  // 2. npx 缓存兜底（_npx/<hash>/node_modules/.bin/dsh.cmd）
   try {
     const npxRoot = path.join(os.homedir(), 'AppData', 'Local', 'npm-cache', '_npx');
     const dirs = fs.readdirSync(npxRoot).filter((d) => /^[0-9a-f]+$/.test(d));
