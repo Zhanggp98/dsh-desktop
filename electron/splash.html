@@ -95,11 +95,16 @@
   </div>
   <div class="spinner"></div>
   <div class="status"><span id="status" class="fade">正在启动…</span></div>
-  <div class="version">v0.1.0</div>
+  <div class="version" id="version">v0.1.0</div>
   <script>
     // 主题切换：light | dark（由主进程调用）
     window.__setTheme = function (theme) {
       document.documentElement.setAttribute('data-theme', theme === 'light' ? 'light' : 'dark');
+    };
+    // 版本号：由主进程注入（与内置 dsh 版本对齐）
+    window.__setVersion = function (v) {
+      var el = document.getElementById('version');
+      if (el && v) el.textContent = 'v' + String(v).replace(/^v/i, '');
     };
     // 更新单行状态文字（带淡入动画）
     window.__setStatus = function (text) {

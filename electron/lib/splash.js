@@ -5,7 +5,7 @@
 // ---------------------------------------------------------------------------
 
 const path = require('path');
-const { BrowserWindow } = require('electron');
+const { BrowserWindow, app } = require('electron');
 
 function install(ctx) {
   function createSplash() {
@@ -25,6 +25,12 @@ function install(ctx) {
       },
     });
     ctx.splashWindow.loadFile(path.join(__dirname, '..', 'splash.html'));
+    ctx.splashWindow.webContents.on('did-finish-load', () => {
+      // 注入版本号（与内置 dsh 版本对齐，来自 package.json）
+      ctx.splashWindow.webContents
+        .executeJavaScript(`window.__setVersion(${JSON.stringify(app.getVersion())})`)
+        .catch(() => {});
+    });
     ctx.splashWindow.once('ready-to-show', () => {
       ctx.theme.applyTheme();
       ctx.splashWindow.show();
