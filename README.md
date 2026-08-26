@@ -8,7 +8,8 @@ Electron 套壳封装 `dsh web`，提供 Codex 式的独立桌面窗口体验：
 
 - **加载页面**：启动动画（三步环境检查：Node.js 检查 → dsh 检查 → 服务启动），每步状态实时打勾/打叉，跟随主题
 - **内置 Node.js**：安装包自带 Node（约 25MB），系统没装 Node 也能直接运行；winget 仅作兜底
-- **环境自动修复**：缺 dsh 自动通过 npx 安装，零命令行
+- **内置 DeepSeek Harness**：安装包自带 dsh 本体 + 全部运行依赖（约 217MB，压缩进包），首次启动自动解压即用，**零下载、无需联网**
+- **环境自动修复**：无内置 dsh 时（异常场景）自动通过 npx 安装，零命令行
 - **自定义标题栏**：鲸鱼图标 + 标题 + 可拖动窗口 + 毛玻璃 + 按钮随主题变色
 - **左侧导航栏**：Harness / 插件 / MCP / Skills 页面切换，悬停提示跟随鼠标位置
 - **插件管理**：卡片化展示第三方插件，支持安装（npm registry）/ 卸载，成功靠卡片动画反馈
@@ -103,7 +104,9 @@ npm run dist           # 生成 NSIS 安装程序（dist/DeepSeek Harness Setup 
 ## 🧠 设计说明
 
 - **Node 优先级**：系统已装 Node → 优先使用；系统没装 → 使用应用内置 Node（`resources/node`）。
-- **内置 dsh**：安装包内置 DeepSeek Harness 本体 + 全部依赖（`build/dsh-bundle.tar`），首次启动解压到用户数据目录即用，零下载；解压失败时明确报错（不再回退 npx 下载）。
+- **内置 dsh**：安装包内置 DeepSeek Harness 本体 + 全部依赖（`build/dsh-bundle.tar`），首次启动解压到用户数据目录 `%APPDATA%\dsh-desktop\dsh`（约 20s，splash 有提示）即用，之后秒开；解压失败时明确报错并自动重试一次（不再回退 npx 下载）。解压的 dsh 用内置 Node 直接运行（`shell:false`，避免空格路径问题）。
+- **版本对齐**：客户端版本号 = 内置 dsh 版本号（打包时 `scripts/sync-version.js` 自动同步，当前 0.1.1-rc.2）。
+- **运行日志**：启动流程 / spawn 命令 / 解压 / 错误记录到安装目录 `logs/app.log`（不可写时回退用户数据目录），便于远程排查；中文 Windows 下 stderr 按 GBK 兼容解码。
 - **端口复用**：启动时先探测 3080 并确认是 DSH 服务；已有实例则直接复用，否则后台拉起一个，避免多实例。
 - **关闭行为**：点关闭弹出勾选式选择框——都不勾 = 最小化到托盘；仅勾窗口 = 退出客户端（服务保留）；仅勾服务 = 只停服务；都勾 = 退出并停止服务。
 - **托盘常驻**：托盘菜单提供「停止服务并退出」（无条件结束 3080 服务）/「退出」（保留服务）。
@@ -125,7 +128,10 @@ dsh-desktop/
 │   ├── icon-blue.png  # exe 内嵌图标（蓝鲸，桌面快捷方式）
 │   ├── tray.png       # 托盘图标 32x32
 │   ├── favicon-official.svg  # 官方鲸鱼矢量图
-│   └── favicon-blue.svg      # 蓝色鲸鱼矢量图
+│   ├── favicon-blue.svg      # 蓝色鲸鱼矢量图
+│   └── dsh-bundle.tar # 内置 dsh 完整安装包（git 忽略，打包前置条件）
+├── scripts/
+│   └── sync-version.js # 打包前从内置 dsh 同步版本号
 ├── vendor/node/       # 内置 Node 便携版（git 忽略，打包前置条件）
 ├── screenshots/       # 界面截图（README 引用）
 ├── convert-icon.js    # 图标生成脚本
