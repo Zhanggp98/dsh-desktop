@@ -9,13 +9,15 @@ const fs = require('fs');
 const { ipcMain } = require('electron');
 
 function install(ctx) {
-  function getLocalDshVersion() {
+  async function getLocalDshVersion() {
     try {
-      const dshCmd = ctx.env.findDshCommand();
+      const dshCmd = await ctx.env.findDshCommand();
       if (!dshCmd) return null;
-      // dsh.cmd 位于 node_modules/.bin/，包在 node_modules/@deepseek-ai/dsh/
-      const pkgPath = path.join(path.dirname(dshCmd), '..', '@deepseek-ai', 'dsh', 'package.json');
-      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+      // 内置 bin.js 位于 node_modules/@deepseek-ai/dsh/lib/bin.js；.cmd 位于 node_modules/.bin/
+      const pkgDir = String(dshCmd).endsWith('bin.js')
+        ? path.join(path.dirname(dshCmd), '..', '..')
+        : path.join(path.dirname(dshCmd), '..', '@deepseek-ai', 'dsh');
+      const pkg = JSON.parse(fs.readFileSync(path.join(pkgDir, 'package.json'), 'utf8'));
       return pkg.version || null;
     } catch {
       return null;
@@ -24,7 +26,7 @@ function install(ctx) {
 
   async function checkForUpdates() {
     try {
-      const local = getLocalDshVersion();
+      const local = await getLocalDshVersion();
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 15_000);
       const res = await fetch('https://registry.npmmirror.com/@deepseek-ai/dsh/latest', {

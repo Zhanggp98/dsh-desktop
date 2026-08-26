@@ -62,8 +62,9 @@ npm start              # 启动桌面应用（自动拉起/复用 dsh web 并开
 
 ## 📦 打包安装程序
 
-> ⚠️ **打包前先准备内置 Node**：项目用 `vendor/node` 里的便携版 Node（打包时打进 `resources/node`）。
-> 它不在 git 仓库里（体积大），需要先下载解压：
+> ⚠️ **打包前先准备两个前置资源**（都不在 git 仓库里，体积大）：
+
+**1. 内置 Node**：`vendor/node` 便携版（打进 `resources/node`）：
 
 ```bash
 # 下载 Node 便携版（以 v26.7.0 为例，npmmirror 镜像）
@@ -73,12 +74,24 @@ Expand-Archive node.zip -DestinationPath vendor-tmp
 Move-Item vendor-tmp/node-v26.7.0-win-x64 vendor/node
 ```
 
-然后打包：
+**2. 内置 dsh bundle**：`build/dsh-bundle.tar`（DeepSeek Harness 本体 + 全部依赖，
+首次启动自动解压到用户数据目录，零下载）。从 npx 缓存的完整安装生成：
+
+```powershell
+# 找到 npx 缓存的 dsh 安装目录（先跑一次 npx --yes @deepseek-ai/dsh --version 确保缓存存在）
+# 假设缓存目录为 C:\Users\<你>\AppData\Local\npm-cache\_npx\<hash>
+cd <缓存目录>
+tar -cf E:\Workspace\dsh-desktop\build\dsh-bundle.tar node_modules
+```
+
+然后打包（自动同步版本号到内置 dsh 的版本）：
 
 ```bash
 npm run pack           # 生成免安装目录（dist/win-unpacked/）
 npm run dist           # 生成 NSIS 安装程序（dist/DeepSeek Harness Setup *.exe）
 ```
+
+> 内置后安装包约 148MB，空白电脑首次启动解压约 20s 即用，**无需联网下载**。
 
 ## ⚙️ 环境变量
 
@@ -87,6 +100,7 @@ npm run dist           # 生成 NSIS 安装程序（dist/DeepSeek Harness Setup 
 | `DSH_DESKTOP_URL` | 覆盖 GUI 地址（默认 `http://localhost:3080`） |
 | `DSH_DESKTOP_DSH_CMD` | 指定 dsh 可执行文件路径（默认自动定位：PATH → npx 缓存） |
 | `DSH_DESKTOP_HOLD_SPLASH` | 预览模式：加载页面完成后停留不进入主页面（调试用） |
+| `DSH_DESKTOP_NPM_REGISTRY` | 覆盖 npx 下载 dsh 的 npm 镜像源（默认 `https://registry.npmmirror.com`） |
 
 ## 🧠 设计说明
 

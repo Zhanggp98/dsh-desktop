@@ -10,7 +10,7 @@ const fs = require('fs');
 const HARNESS_URL = process.env.DSH_DESKTOP_URL || 'http://localhost:3080';
 const PORT = Number(new URL(HARNESS_URL).port) || 3080;
 const SERVER_START_TIMEOUT_MS = 30_000; // 直接启动 dsh 的等待上限
-const NPX_START_TIMEOUT_MS = 180_000; // 首次 npx 下载安装的等待上限
+const NPX_START_TIMEOUT_MS = 600_000; // 首次 npx 下载安装的等待上限（约 194MB 依赖，给足时间）
 const SPLASH_MIN_MS = 3_000; // splash 最短展示时间（保证过渡动画可见）
 
 // 应用图标（base64 data URL，用于自定义标题栏）

@@ -2,6 +2,7 @@ node_modules/
 dist/
 dist-tmp/
 vendor/
+build/dsh-bundle.tar
 .npm-cache/
 .electron-cache/
 .electron-builder-cache/

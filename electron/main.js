@@ -20,11 +20,16 @@
 
 const { app } = require('electron');
 const { ctx } = require('./lib/context');
+const logger = require('./lib/logger');
 
 // 开发/便携模式：自定义用户数据目录（避免写入 %APPDATA%）
 if (process.env.DSH_DESKTOP_USER_DATA) {
   app.setPath('userData', process.env.DSH_DESKTOP_USER_DATA);
 }
+// 初始化日志（优先安装目录 logs/，卸载时随程序删除；不可写则回退用户数据目录）
+logger.init(app.getPath('userData'));
+ctx.logger = logger;
+logger.log('info', '应用启动', { version: app.getVersion(), userData: app.getPath('userData'), logDir: logger.getLogDir() });
 
 // 装配各功能模块（顺序即依赖顺序；managers 的 IPC 由 lib/ipc.js 统一注册）
 require('./lib/env').install(ctx);

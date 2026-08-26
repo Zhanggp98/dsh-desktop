@@ -1,14 +1,15 @@
 {
     "name": "dsh-desktop",
-    "version": "0.1.0",
+    "version": "0.1.1-rc.2",
     "description": "DeepSeek Harness 桌面应用（Electron 套壳）",
     "main": "electron/main.js",
     "author": "dsh-desktop",
     "license": "MIT",
     "scripts": {
         "start": "electron .",
-        "pack": "electron-builder --dir",
-        "dist": "electron-builder --win nsis"
+        "sync-version": "node scripts/sync-version.js",
+        "pack": "npm run sync-version && electron-builder --dir",
+        "dist": "npm run sync-version && electron-builder --win nsis"
     },
     "devDependencies": {
         "electron": "^43.4.0",
@@ -31,6 +32,10 @@
             {
                 "from": "vendor/node",
                 "to": "node"
+            },
+            {
+                "from": "build/dsh-bundle.tar",
+                "to": "dsh-bundle.tar"
             }
         ],
         "win": {

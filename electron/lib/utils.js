@@ -45,6 +45,21 @@ function readJson(file) {
   }
 }
 
+/** 递归统计目录总大小（字节） */
+function dirSize(dir) {
+  const fs = require('fs');
+  let total = 0;
+  try {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const e of entries) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) total += dirSize(p);
+      else if (e.isFile()) total += fs.statSync(p).size;
+    }
+  } catch { /* 目录不存在/无权限 */ }
+  return total;
+}
+
 /** 去除 YAML/字符串值的引号包裹 */
 function unquote(str) {
   return String(str || '').trim().replace(/^['"]|['"]$/g, '');
@@ -71,6 +86,7 @@ module.exports = {
   splitPackage,
   pkgInstallCandidates,
   readJson,
+  dirSize,
   unquote,
   parseFrontmatter,
 };

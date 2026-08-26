@@ -26,6 +26,7 @@ function install(ctx) {
 
     try {
       // ---------- 第 1 步：检查 Node.js ----------
+      ctx.logger.log('info', 'boot: 检查 Node.js');
       const nodeResult = await statusWhile('正在检查 Node.js 环境…', async () => {
         let v = await ctx.env.checkNode();
         let dir = null;
@@ -44,6 +45,7 @@ function install(ctx) {
       });
       let nodeVer = nodeResult.v;
       let nodeDir = nodeResult.dir;
+      ctx.logger.log('info', 'boot: Node 检测结果', { version: nodeVer, dir: nodeDir });
 
       // 内置也缺失（打包异常）→ winget 兜底（系统级安装）
       if (!nodeVer) {
@@ -87,7 +89,21 @@ function install(ctx) {
           if (dshOk) return { running: true, dsh: null };
           return { running: false, conflict: true, dsh: null };
         }
-        return { running: false, dsh: ctx.env.findDshCommand() };
+        // 首次运行内置 dsh 时，findDshCommand 内部会异步解压 bundle（约 19s，不阻塞 UI），先提示
+        ctx.splash.setStatus('正在准备 DeepSeek Harness（首次运行需解压，请稍候）…');
+        try {
+          const dsh = await ctx.env.findDshCommand();
+          ctx.logger.log('info', 'boot: findDshCommand 结果', dsh);
+          return { running: false, dsh };
+        } catch (e) {
+          ctx.logger.log('error', 'boot: findDshCommand 失败', e.message);
+          // 内置 dsh 解压失败：明确提示（不再静默回退到 npx 下载）
+          throw new Error(
+            '内置 DeepSeek Harness 无法使用。\n' +
+            (e && e.message ? e.message : '解压失败') +
+            '\n\n可尝试重新安装，或设置 DSH_DESKTOP_DSH_CMD 指定已安装的 dsh。'
+          );
+        }
       });
 
       // ---------- 第 3 步：启动 / 复用服务 ----------
@@ -105,13 +121,16 @@ function install(ctx) {
         return;
       } else {
         // 启动服务
+        ctx.logger.log('info', 'boot: 启动服务', { dsh: probe.dsh, viaNpx: !probe.dsh || probe.dsh === 'npx' });
         await statusWhile('正在启动服务…', async () => {
           if (probe.dsh && probe.dsh !== 'npx') {
             await ctx.server.launchServer(probe.dsh, false, nodeDir);
           } else {
-            // 无 dsh：先显示安装中
-            ctx.splash.setStatus('正在安装 DeepSeek Harness…');
-            await ctx.server.launchServer(null, true, nodeDir);
+            // 无 dsh：显示下载/安装进度
+            ctx.splash.setStatus('正在下载 DeepSeek Harness（首次约 194MB，请耐心等待）…');
+            await ctx.server.launchServer(null, true, nodeDir, (msg) => {
+              ctx.splash.setStatus(msg);
+            });
           }
         });
       }
@@ -124,6 +143,7 @@ function install(ctx) {
         return;
       }
 
+      ctx.logger.log('info', 'boot: 进入主界面', { 耗时_ms: Date.now() - bootStart });
       ctx.window.createWindow();
       ctx.trayCtrl.createTray();
       // 启动完成后自动检查更新（不阻塞）
@@ -138,6 +158,7 @@ function install(ctx) {
         }
       }
     } catch (err) {
+      ctx.logger.log('error', 'boot: 启动失败', err && err.stack ? err.stack : err);
       ctx.splash.setStatus('启动失败');
       await delay(500);
       dialog.showErrorBox('启动失败', err.message);
